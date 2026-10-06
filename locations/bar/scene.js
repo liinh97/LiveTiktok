@@ -255,7 +255,8 @@ function drawMirrorDots(ctx, w) {
   ctx.globalCompositeOperation = 'source-over';
 }
 
-// "Drop nhạc": khoảng 35-55 giây một lần cả quán giơ tay thành làn sóng trái sang phải
+// "Drop nhạc": khoảng 35-55 giây một lần cả quán cùng làm một động tác
+// (giơ tay thành làn sóng trái sang phải, nhảy tưng tưng, hoặc vỗ tay trên đầu)
 let nextDrop = 25 + Math.random() * 15;
 let lastT = 0;
 
@@ -268,14 +269,18 @@ export default {
   source: { x: 540, y: COUNTER_Y - 30 },
   scaleAt,
 
-  /** Engine gọi mỗi khung hình: thỉnh thoảng "drop nhạc", cả quán giơ tay lan từ trái sang phải. */
+  /** Engine gọi mỗi khung hình: thỉnh thoảng "drop nhạc", cả quán cùng làm một động tác. */
   update(w) {
     const t = w.t;
     if (t < lastT) nextDrop = t + 25 + Math.random() * 15;
     lastT = t;
     if (t > nextDrop) {
       nextDrop = t + 35 + Math.random() * 20;
-      for (const c of w.chars) setTimeout(() => w.pose(c, 'cheer', 3500), (c.x / w.W) * 1200);
+      const kind = ['wave', 'hop', 'clap'][Math.floor(Math.random() * 3)];
+      for (const c of w.chars) {
+        if (kind === 'wave') setTimeout(() => w.pose(c, 'cheer', 3500), (c.x / w.W) * 1200); // làn sóng giơ tay
+        else w.dance(c, kind, 4000); // cả quán nhảy tưng tưng / vỗ tay cùng nhịp
+      }
       w.fx.flash({ alpha: 0.18, ms: 400 });
       w.fx.wash({ color: MAGENTA, ms: 4000, alpha: 0.14 });
     }

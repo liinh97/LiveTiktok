@@ -33,6 +33,7 @@ const MAX_OVERRIDE = Number(params.get('max')) || null;
 const DEFAULT_MAX = 250;
 const IDLE_LEAVE_SEC = 15 * 60;
 const SHOW_ALL_TAGS_UNDER = 60; // ít người thì hiện tên tất cả
+const BEAT_HZ = 2; // nhịp nhạc ~120 BPM
 
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
@@ -183,6 +184,10 @@ const w = {
     c.pose = name;
     c.poseUntil = now + ms / 1000;
   },
+  /** Điệu nhảy cho nhân vật trong ms mili giây (vd. cả quán cùng nhảy tưng tưng). */
+  dance(c, move, ms = 4000) {
+    c.dance = { move, start: now, until: now + ms / 1000 };
+  },
   say(c, t, ms = 4000) {
     c.bubble = { text: t, until: now + ms / 1000 };
   },
@@ -212,6 +217,87 @@ const w = {
     cam.queue.push({ c, ms });
   },
 };
+
+// ---------------- Điệu nhảy của đám đông (tự đổi sau vài giây, khớp nhịp nhạc) ----------------
+const DANCES = [
+  ['bounce', 8],
+  ['pump', 14],
+  ['clap', 10],
+  ['point', 12],
+  ['roof', 9],
+  ['wave2', 12],
+  ['swing', 12],
+  ['shuffle', 11],
+  ['hop', 8],
+];
+const DANCE_SUM = DANCES.reduce((a, d) => a + d[1], 0);
+function pickDance() {
+  let r = Math.random() * DANCE_SUM;
+  for (const d of DANCES) if ((r -= d[1]) <= 0) return d[0];
+  return 'bounce';
+}
+
+/** Độ lệch thân + kiểu tay cho một nhân vật ở thời điểm hiện tại. */
+function danceOf(c) {
+  const beat = now * BEAT_HZ + (c.beatOff || 0);
+  const b = Math.pow(Math.abs(Math.sin(Math.PI * beat)), 2);
+  const m = { dx: 0, dy: 0, rot: 0, sx: 1, arms: null, beat };
+  if (c.moving) {
+    m.dy = Math.abs(Math.sin(now * 12 + c.seed * 9)) * 7;
+    m.arms = c.path ? 'dance' : null;
+    return m;
+  }
+  if (c.pose) {
+    m.dy = b * 6;
+    m.arms = c.pose;
+    return m;
+  }
+  const move = c.dance?.move || 'bounce';
+  m.arms = move;
+  switch (move) {
+    case 'pump':
+      m.dy = b * 8;
+      break;
+    case 'clap':
+      m.dy = b * 4;
+      break;
+    case 'point':
+      m.rot = (Math.floor(beat) % 2 ? 1 : -1) * 0.07;
+      m.dy = b * 4;
+      break;
+    case 'roof':
+      m.dy = b * 7;
+      break;
+    case 'wave2':
+      m.rot = Math.sin((Math.PI * beat) / 2) * 0.09;
+      m.dy = b * 3;
+      break;
+    case 'swing':
+      m.rot = Math.sin((Math.PI * beat) / 2) * 0.13;
+      m.dy = b * 3;
+      break;
+    case 'shuffle':
+      m.dx = Math.sin(Math.PI * beat) * 12;
+      m.dy = b * 4;
+      m.arms = 'swing';
+      break;
+    case 'hop':
+      m.dy = b * 18;
+      m.arms = 'pump';
+      break;
+    case 'spin': {
+      const p = clamp((now - c.dance.start) / (c.dance.until - c.dance.start), 0, 1);
+      m.sx = Math.cos(p * Math.PI * 2);
+      m.dy = Math.sin(p * Math.PI) * 10;
+      m.arms = 'cheer';
+      break;
+    }
+    default:
+      m.dy = b * 6;
+      m.arms = null;
+  }
+  return m;
+}
 
 // ---------------- Đám đông ----------------
 function maxChars() {
@@ -256,6 +342,7 @@ function spawn(user, walkIn) {
     tx: s.x,
     ty: s.y,
     sm: 1,
+    beatOff: (Math.random() - 0.5) * 0.15, // lệch nhịp chút xíu cho tự nhiên
     busyUntil: 0,
     lastActive: now,
   };
@@ -318,6 +405,11 @@ function updateChars(dt) {
     const target = c.look?.scale || 1;
     c.sm += (target - c.sm) * Math.min(1, dt * 5);
     if (c.pose && now >= c.poseUntil) c.pose = null;
+    // tự đổi điệu nhảy sau vài giây (thỉnh thoảng xoay một vòng)
+    if (!c.dance || now > c.dance.until) {
+      const spin = Math.random() < 0.05;
+      c.dance = { move: spin ? 'spin' : pickDance(), start: now, until: now + (spin ? 1 : rand(4, 8)) };
+    }
     // nhảy 1 cái
     c.jumpY = 0;
     c.spin = 0;
@@ -353,14 +445,14 @@ function tagOf(c) {
   return c.tag;
 }
 
-function drawChar(c, groove) {
+function drawChar(c) {
   const s0 = sceneScale(c.y);
   const s = s0 * c.sm;
   const busy = now < c.busyUntil;
   const alpha = c.leaving ? clamp(1 - (now - c.leaving) / 0.6, 0, 1) : 1;
-  const bob = c.moving ? Math.abs(Math.sin(now * 12 + c.seed * 9)) * 7 * s0 : groove(c) * 6 * s0;
-  const x = c.x;
-  const y = c.y - bob - c.jumpY;
+  const m = danceOf(c);
+  const x = c.x + m.dx * s0;
+  const y = c.y - m.dy * s0 - c.jumpY;
   ctx.globalAlpha = alpha;
 
   if (c.look?.wings) drawWings(ctx, x, y, s, now);
@@ -377,18 +469,21 @@ function drawChar(c, groove) {
   const sp = spriteOf(c);
   const dw = SPRITE_W * s;
   const dh = SPRITE_H * s;
+  ctx.save();
   if (c.spin) {
-    ctx.save();
+    // lộn một vòng (lệnh "Nhảy 1 cái")
     ctx.translate(x, y - dh / 2);
     ctx.rotate(c.spin);
     ctx.drawImage(sp, -dw / 2, -dh / 2, dw, dh);
-    ctx.restore();
   } else {
-    // nhún: hơi bẹp/giãn theo nhịp
-    const squash = c.moving ? 0 : groove(c) * 0.04;
-    ctx.drawImage(sp, x - (dw * (1 + squash)) / 2, y - dh * (1 - squash) - 2 * s, dw * (1 + squash), dh * (1 - squash));
-    drawArms(ctx, x, y, s, c.parts, c.pose || (c.moving && c.path ? 'dance' : null), now, c.seed);
+    ctx.translate(x, y);
+    ctx.rotate(m.rot);
+    ctx.scale(m.sx, 1);
+    const squash = c.moving ? 0 : (m.dy / 18) * 0.05;
+    ctx.drawImage(sp, (-dw * (1 + squash)) / 2, -dh * (1 - squash) - 2 * s, dw * (1 + squash), dh * (1 - squash));
+    drawArms(ctx, 0, 0, s, c.parts, m.arms, now, c.seed, m.beat);
   }
+  ctx.restore();
   if (c.item && now < c.item.until) emoji(c.item.e, x + 26 * s, y - 62 * s, 30 * s);
   ctx.globalAlpha = 1;
 }
@@ -626,9 +721,11 @@ function defaultWalkPath() {
 }
 
 // ---------------- Xử lý hành động ----------------
+const deferred = []; // sự kiện đến lúc đang chuyển cảnh: diễn lại khi chuyển xong
 function handle(a) {
   if (!scene || transition) {
     if ((a.priority || 0) >= 3) stageQueue.push(a);
+    else if (deferred.length < 300) deferred.push(a);
     return;
   }
   if (!state.location && a.action.startsWith('gift')) {
@@ -922,15 +1019,13 @@ function drawTransition() {
   text(transition.title, W / 2, H / 2 - 100, { size: 80, color: '#ffe082' });
   if (!transition.introOnly) text('Đang chuyển địa điểm…', W / 2, H / 2, { size: 38 });
   ctx.globalAlpha = 1;
-  if (a <= 0 && t > 0.7) transition = null;
+  if (a <= 0 && t > 0.7) {
+    transition = null;
+    for (const d of deferred.splice(0)) handle(d);
+  }
 }
 
 // ---------------- Vòng lặp ----------------
-const BEAT_HZ = 2; // ~120 BPM
-function groove(c) {
-  return Math.pow(Math.abs(Math.sin((now * BEAT_HZ + c.seed) * Math.PI)), 3);
-}
-
 let last = performance.now();
 function frame(ts) {
   const dt = Math.min(0.05, (ts - last) / 1000);
@@ -948,7 +1043,7 @@ function frame(ts) {
     scene.background(ctx, w);
     fx.draw('under');
     const list = [...chars.values()].sort((a, b) => a.y - b.y);
-    for (const c of list) drawChar(c, groove);
+    for (const c of list) drawChar(c);
     scene.foreground?.(ctx, w);
     const all = list.length <= SHOW_ALL_TAGS_UNDER;
     for (const c of list) {

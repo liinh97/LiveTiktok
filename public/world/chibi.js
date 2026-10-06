@@ -270,28 +270,79 @@ function accessory(g, parts, x, y, hasAvatar) {
   }
 }
 
-/** Tay vẽ mỗi khung hình (để giơ tay, vẫy, nhảy). x, y: chân nhân vật; s: tỉ lệ. */
-export function drawArms(ctx, x, y, s, parts, pose, t, seed) {
+/**
+ * Tay vẽ mỗi khung hình (để giơ tay, vỗ tay, quẩy...). x, y: chân nhân vật; s: tỉ lệ.
+ * pose: cheer | dance | wave | pump | clap | point | roof | wave2 | swing | (null = buông tay)
+ * beat: số nhịp nhạc đã trôi (số thực) để tay chuyển động khớp nhịp.
+ */
+export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2) {
   const sy = y - (FOOT_Y - SHOULDER_Y) * s;
   const lx = x - 17 * s;
   const rx = x + 17 * s;
+  const b = Math.pow(Math.abs(Math.sin(Math.PI * beat)), 2); // 1 đúng nhịp
+  const odd = Math.floor(beat) % 2 === 1;
   let L;
   let R;
-  if (pose === 'cheer') {
-    const w = Math.sin(t * 8 + seed * 6) * 6 * s;
-    L = [lx - 12 * s + w, sy - 40 * s];
-    R = [rx + 12 * s - w, sy - 40 * s];
-  } else if (pose === 'dance') {
-    const k = Math.sin(t * 6 + seed * 6);
-    L = [lx - 16 * s, sy - (k > 0 ? 34 : 4) * s];
-    R = [rx + 16 * s, sy - (k > 0 ? 4 : 34) * s];
-  } else if (pose === 'wave') {
-    L = [lx - 6 * s, sy + 26 * s];
-    R = [rx + 14 * s + Math.sin(t * 10) * 7 * s, sy - 36 * s];
-  } else {
-    const k = Math.sin(t * 4 + seed * 6) * 2 * s;
-    L = [lx - 6 * s, sy + 24 * s + k];
-    R = [rx + 6 * s, sy + 24 * s - k];
+  switch (pose) {
+    case 'cheer': {
+      const w = Math.sin(t * 8 + seed * 6) * 6 * s;
+      L = [lx - 12 * s + w, sy - 40 * s];
+      R = [rx + 12 * s - w, sy - 40 * s];
+      break;
+    }
+    case 'dance': {
+      const k = Math.sin(t * 6 + seed * 6);
+      L = [lx - 16 * s, sy - (k > 0 ? 34 : 4) * s];
+      R = [rx + 16 * s, sy - (k > 0 ? 4 : 34) * s];
+      break;
+    }
+    case 'wave':
+      L = [lx - 6 * s, sy + 26 * s];
+      R = [rx + 14 * s + Math.sin(t * 10) * 7 * s, sy - 36 * s];
+      break;
+    case 'pump': // giơ hai tay quẩy theo nhịp
+      L = [lx - 8 * s, sy - (30 + 14 * b) * s];
+      R = [rx + 8 * s, sy - (30 + 14 * b) * s];
+      break;
+    case 'clap': {
+      // vỗ tay trên đầu: hai tay chạm nhau đúng nhịp
+      const gap = (3 + (1 - b) * 14) * s;
+      L = [x - gap, sy - 44 * s];
+      R = [x + gap, sy - 44 * s];
+      break;
+    }
+    case 'point': // chỉ tay kiểu disco, đổi bên mỗi nhịp
+      if (odd) {
+        L = [lx - 18 * s, sy - 44 * s];
+        R = [rx + 2 * s, sy + 14 * s];
+      } else {
+        R = [rx + 18 * s, sy - 44 * s];
+        L = [lx - 2 * s, sy + 14 * s];
+      }
+      break;
+    case 'roof': // "raise the roof": hai tay đẩy lên trời
+      L = [lx - 14 * s, sy - (34 + 8 * b) * s];
+      R = [rx + 14 * s, sy - (34 + 8 * b) * s];
+      break;
+    case 'wave2': {
+      // vẫy hai tay qua lại trên đầu
+      const d = Math.sin((Math.PI * beat) / 2) * 16 * s;
+      L = [lx - 6 * s + d, sy - 40 * s];
+      R = [rx + 6 * s + d, sy - 40 * s];
+      break;
+    }
+    case 'swing': {
+      // vung tay sang hai bên
+      const k = Math.sin(Math.PI * beat);
+      L = [lx - (10 + 8 * k) * s, sy + (16 - 12 * k) * s];
+      R = [rx + (10 - 8 * k) * s, sy + (16 + 12 * k) * s];
+      break;
+    }
+    default: {
+      const k = Math.sin(t * 4 + seed * 6) * 2 * s;
+      L = [lx - 6 * s, sy + 24 * s + k];
+      R = [rx + 6 * s, sy + 24 * s - k];
+    }
   }
   ctx.lineCap = 'round';
   ctx.strokeStyle = parts.outfit;
