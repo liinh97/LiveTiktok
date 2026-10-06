@@ -14,8 +14,10 @@
 //     walkPath?: [{x,y}]          đường đi vòng quanh quán (lệnh "Đi vòng")
 //     source: {x,y} | (w,c)=>{x,y} nơi đồ/quà bay ra (quầy bar, bếp...)
 //     scaleAt?(y) -> number       to/nhỏ theo độ xa gần (mặc định 1)
+//     setup?(w)                   tạo nhân vật phụ (w.npc) khi vào cảnh
 //     update?(w, dt)              gọi mỗi khung hình
 //     stageFloorY?: number        độ cao sàn để đặt pháo sáng / khói (mặc định 1500)
+//     bannerY?: number            độ cao dòng thông báo đầu tiên (mặc định 600)
 //     actions?: { tên(w, a, d) }  diễn hành động theo kiểu riêng; d = bộ hành động mặc định
 //     maxChars?: number           số nhân vật tối đa (mặc định 250; ghi đè bằng ?max= trên URL)
 //   }
@@ -33,7 +35,11 @@ const MAX_OVERRIDE = Number(params.get('max')) || null;
 const DEFAULT_MAX = 250;
 const IDLE_LEAVE_SEC = 15 * 60;
 const SHOW_ALL_TAGS_UNDER = 60; // ít người thì hiện tên tất cả
-const BEAT_HZ = 2; // nhịp nhạc ~120 BPM
+const DEFAULT_BPM = 120;
+const VOLUME = clampNum(Number(params.get('vol') ?? 0.8), 0, 1);
+function clampNum(v, a, b) {
+  return Number.isFinite(v) ? Math.max(a, Math.min(b, v)) : b;
+}
 
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
@@ -55,6 +61,8 @@ const stageQueue = [];
 let stageBusyUntil = 0;
 let transition = null;
 let now = 0; // giây
+let beatPos = 0; // số nhịp nhạc đã trôi (theo bpm bài đang phát)
+let clockOffset = 0; // giờ máy chủ - giờ máy này (ms)
 const cam = { x: W / 2, y: H / 2, z: 1, target: null, until: 0, queue: [] };
 
 const fx = createFx({ ctx, W, H, clock: () => now });
@@ -148,13 +156,67 @@ const w = {
     return now;
   },
   get chars() {
-    return [...chars.values()].filter((c) => !c.leaving);
+    return [...chars.values()].filter((c) => !c.leaving && !c.npc);
   },
   get state() {
     return state;
   },
   get hasMedia() {
     return mediaReady();
+  },
+  /** Số nhịp nhạc đã trôi (dùng cho đèn nháy theo nhạc). */
+  get beat() {
+    return beatPos;
+  },
+  /** Trạng thái tính năng tương tác (nhạc, đơn, dancer, mục tiêu) từ máy chủ. */
+  get features() {
+    return state.features || {};
+  },
+  /**
+   * Nhân vật phụ (bartender, DJ, bồi bàn, dancer...) do scene tạo; không tính vào đám đông.
+   * opts: { x, y, style, label, labelColor, scale, size (cố định, bỏ qua xa gần), parts: {...ghi đè bộ phận}, costume, clipY }
+   */
+  npc(id, opts) {
+    const key = `npc:${id}`;
+    let c = chars.get(key);
+    if (!c && opts) {
+      c = {
+        id: key,
+        npc: true,
+        seed: Math.random(),
+        spotIndex: -1,
+        home: { x: opts.x, y: opts.y },
+        x: opts.x,
+        y: opts.y,
+        tx: opts.x,
+        ty: opts.y,
+        sm: opts.scale || 1,
+        size: opts.size || null, // kích thước cố định trên màn hình (không to/nhỏ theo xa gần)
+        look: { style: opts.style ?? 0, scale: opts.scale || 1 },
+        beatOff: (Math.random() - 0.5) * 0.1,
+        busyUntil: 0,
+        lastActive: Infinity,
+        label: opts.label || null,
+        labelColor: opts.labelColor || '#ffe082',
+        clipY: opts.clipY ?? null,
+        viewer: null,
+      };
+      c.parts = { ...partsOf(c.look.style), ...(opts.parts || {}), costume: opts.costume || null };
+      chars.set(key, c);
+    }
+    return c || null;
+  },
+  /** Đi theo một chuỗi điểm (đến nơi gọi onDone). */
+  walk(c, points, { speed = 1, onDone } = {}) {
+    c.path = [...points];
+    c.speedMul = speed;
+    c.onArrive = onDone || null;
+    c.tx = c.x;
+    c.ty = c.y;
+  },
+  /** Hiệu ứng "bựa" sau khi uống/ăn: hiccup | fire | zoom | freeze | rocket | sour | hearts | pie */
+  drinkEffect(c, effect) {
+    applyEffect(c, effect);
   },
   scaleOf,
   headTop,
@@ -239,7 +301,7 @@ function pickDance() {
 
 /** Độ lệch thân + kiểu tay cho một nhân vật ở thời điểm hiện tại. */
 function danceOf(c) {
-  const beat = now * BEAT_HZ + (c.beatOff || 0);
+  const beat = beatPos + (c.beatOff || 0);
   const b = Math.pow(Math.abs(Math.sin(Math.PI * beat)), 2);
   const m = { dx: 0, dy: 0, rot: 0, sx: 1, arms: null, beat };
   if (c.moving) {
@@ -329,7 +391,7 @@ function spawn(user, walkIn) {
     chars.delete(user.id);
     if (old.spotIndex >= 0) freeSpots.add(old.spotIndex);
   }
-  if (chars.size >= maxChars()) evict();
+  if (viewerCount() >= maxChars()) evict();
   const s = takeSpot();
   const e = scene?.entrance || { x: W / 2, y: H + 60 };
   const c = {
@@ -353,16 +415,21 @@ function spawn(user, walkIn) {
 }
 
 /** Quán đầy: mời người lâu không tương tác nhất (không đang diễn) ra về. */
+function viewerCount() {
+  let n = 0;
+  for (const c of chars.values()) if (!c.npc) n++;
+  return n;
+}
 function evict() {
   let victim = null;
   for (const c of chars.values()) {
-    if (c.leaving || now < c.busyUntil) continue;
+    if (c.npc || c.leaving || now < c.busyUntil) continue;
     if (!victim || c.lastActive < victim.lastActive) victim = c;
   }
   if (victim) leave(victim);
   // vẫn quá đông (toàn người đang diễn) thì xoá thẳng người cũ nhất
-  if (chars.size >= maxChars() + 20) {
-    const oldest = [...chars.values()].sort((a, b) => a.lastActive - b.lastActive)[0];
+  if (viewerCount() >= maxChars() + 20) {
+    const oldest = [...chars.values()].filter((c) => !c.npc).sort((a, b) => a.lastActive - b.lastActive)[0];
     removeChar(oldest);
   }
 }
@@ -381,18 +448,25 @@ function updateChars(dt) {
       removeChar(c);
       continue;
     }
-    if (!c.leaving && now - c.lastActive > IDLE_LEAVE_SEC) leave(c);
-    // đi theo đường (lệnh "Đi vòng") rồi về chỗ
-    if (c.path?.length && Math.hypot(c.tx - c.x, c.ty - c.y) < 4) {
-      const p = c.path.shift();
-      c.tx = p.x;
-      c.ty = p.y;
-      if (!c.path.length) c.path = null;
+    if (!c.npc && !c.leaving && now - c.lastActive > IDLE_LEAVE_SEC) leave(c);
+    // đi theo đường (lệnh "Đi vòng", bồi bàn, dancer...) rồi gọi onArrive
+    if (c.path && Math.hypot(c.tx - c.x, c.ty - c.y) < 4) {
+      if (c.path.length) {
+        const p = c.path.shift();
+        c.tx = p.x;
+        c.ty = p.y;
+      } else {
+        c.path = null;
+        c.speedMul = 1;
+        const done = c.onArrive;
+        c.onArrive = null;
+        done?.(c);
+      }
     }
     const dx = c.tx - c.x;
     const dy = c.ty - c.y;
     const d = Math.hypot(dx, dy);
-    const sp = (c.path ? 330 : 240) * dt;
+    const sp = (c.path ? 330 : 240) * (c.speedMul || 1) * dt;
     c.moving = d > 2;
     if (d <= sp) {
       c.x = c.tx;
@@ -401,8 +475,9 @@ function updateChars(dt) {
       c.x += (dx / d) * sp;
       c.y += (dy / d) * sp;
     }
+    if (c.effect && now > c.effect.until) c.effect = null;
     // to/nhỏ mượt theo ngoại hình
-    const target = c.look?.scale || 1;
+    const target = c.size ? c.size / sceneScale(c.y) : c.look?.scale || 1;
     c.sm += (target - c.sm) * Math.min(1, dt * 5);
     if (c.pose && now >= c.poseUntil) c.pose = null;
     // tự đổi điệu nhảy sau vài giây (thỉnh thoảng xoay một vòng)
@@ -421,13 +496,14 @@ function updateChars(dt) {
         c.spin = p > 0.12 && p < 0.88 ? ((p - 0.12) / 0.76) * Math.PI * 2 : 0;
       }
     }
+    updateEffect(c, dt);
   }
 }
 
 function spriteOf(c) {
   const av = c.viewer?.avatar ? img(c.viewer.avatar) : null;
   const res = (c.look?.scale || 1) > 1.3 ? 2 : 1.25;
-  const key = `${c.look.style}|${av ? 1 : 0}|${res}`;
+  const key = `${c.look.style}|${c.parts.costume || ''}|${av ? 1 : 0}|${res}`;
   if (!c.sprite || c.spriteKey !== key) {
     c.sprite = renderChibi(c.parts, av, res);
     c.spriteKey = key;
@@ -436,6 +512,10 @@ function spriteOf(c) {
 }
 
 function tagOf(c) {
+  if (c.npc) {
+    if (!c.tag) c.tag = renderTag(c.label, c.labelColor, 1, false, FONT);
+    return c.tag;
+  }
   const v = c.viewer;
   const key = `${v.name}|${v.tier?.color}|${v.tier?.rank}|${c.look?.wings ? 1 : 0}`;
   if (!c.tag || c.tagKey !== key) {
@@ -469,19 +549,27 @@ function drawChar(c) {
   const sp = spriteOf(c);
   const dw = SPRITE_W * s;
   const dh = SPRITE_H * s;
+  const ef = effectPose(c);
   ctx.save();
+  if (c.clipY != null) {
+    // đứng sau quầy: che phần dưới
+    ctx.beginPath();
+    ctx.rect(0, 0, W, c.clipY);
+    ctx.clip();
+  }
   if (c.spin) {
     // lộn một vòng (lệnh "Nhảy 1 cái")
     ctx.translate(x, y - dh / 2);
     ctx.rotate(c.spin);
     ctx.drawImage(sp, -dw / 2, -dh / 2, dw, dh);
   } else {
-    ctx.translate(x, y);
+    ctx.translate(x + ef.dx * s, y - ef.dy * s);
     ctx.rotate(m.rot);
-    ctx.scale(m.sx, 1);
+    ctx.scale(m.sx * ef.sx, ef.sy);
     const squash = c.moving ? 0 : (m.dy / 18) * 0.05;
     ctx.drawImage(sp, (-dw * (1 + squash)) / 2, -dh * (1 - squash) - 2 * s, dw * (1 + squash), dh * (1 - squash));
-    drawArms(ctx, 0, 0, s, c.parts, m.arms, now, c.seed, m.beat);
+    drawArms(ctx, 0, 0, s, c.parts, ef.arms || m.arms, now, c.seed, m.beat);
+    drawEffectOverlay(c, s);
   }
   ctx.restore();
   if (c.item && now < c.item.until) emoji(c.item.e, x + 26 * s, y - 62 * s, 30 * s);
@@ -520,6 +608,150 @@ function drawOverlay(c, showTag) {
     ctx.lineTo(c.x, by + bh + 10);
     ctx.fill();
     lines.forEach((l, i) => text(l, bx + bw / 2, by + 23 + i * 30, { size: 24, color: '#1a1a1a', weight: 600, stroke: null }));
+  }
+}
+
+// ---------------- Hiệu ứng "bựa" trên nhân vật (đồ uống, bánh kem) ----------------
+const EFFECT_SEC = { hiccup: 4, fire: 3.5, zoom: 4, freeze: 4, rocket: 2.6, sour: 3, hearts: 3, pie: 7 };
+
+function applyEffect(c, effect) {
+  const dur = EFFECT_SEC[effect] || 3;
+  c.effect = { type: effect, start: now, until: now + dur, last: 0 };
+  const top = () => headTop(c);
+  switch (effect) {
+    case 'fire':
+      w.float(c.x, top() - 50, 'CAY QUÁ!!! 🔥', '#ff7043', 34);
+      break;
+    case 'hiccup':
+      w.float(c.x, top() - 50, 'Hức! 🫧', '#e1bee7');
+      break;
+    case 'zoom': {
+      w.float(c.x, top() - 50, '⚡ TĂNG LỰC! ⚡', '#ffee58', 34);
+      const path = scene.walkPath || defaultWalkPath();
+      w.walk(c, [...path, c.home], { speed: 2.6 });
+      break;
+    }
+    case 'freeze':
+      w.float(c.x, top() - 50, 'Lạnh quá trời 🥶', '#81d4fa');
+      break;
+    case 'rocket':
+      w.float(c.x, top() - 50, 'Ợ Ợ Ợ ỢỢỢ!!! 🚀', '#fff59d', 34);
+      break;
+    case 'sour':
+      w.float(c.x, top() - 50, 'Chuaaaa 😖', '#dce775');
+      w.emote(c, '😖', 3000);
+      break;
+    case 'hearts':
+      w.hearts(c.x, top(), { n: 8 });
+      w.emote(c, '🥰', 3000);
+      break;
+    case 'pie':
+      w.float(c.x, top() - 40, 'BỘP!!! 🥧', '#fff', 38);
+      w.emote(c, '😵', 3500);
+      fx.sparkBurst(c.x, top() + 20, { n: 30, color: [255, 250, 240], speed: 300 });
+      break;
+  }
+}
+
+/** Độ lệch thân + tay theo hiệu ứng đang chạy. */
+function effectPose(c) {
+  const e = c.effect;
+  const out = { dx: 0, dy: 0, sx: 1, sy: 1, arms: null };
+  if (!e) return out;
+  const t = now - e.start;
+  const p = t / (e.until - e.start);
+  switch (e.type) {
+    case 'hiccup': {
+      const k = (t % 0.9) / 0.9;
+      out.dy = k < 0.25 ? Math.sin((k / 0.25) * Math.PI) * 16 : 0;
+      break;
+    }
+    case 'fire':
+      out.dx = Math.sin(t * 40) * 2;
+      out.arms = 'cheer';
+      break;
+    case 'freeze':
+      out.dx = Math.sin(t * 70) * 2.5;
+      out.sy = 0.96;
+      break;
+    case 'rocket': {
+      // rung rung rồi phụt bay lên trời, rơi xuống
+      if (t < 0.5) out.dx = Math.sin(t * 60) * 3;
+      else out.dy = Math.sin(Math.min(1, (t - 0.5) / (e.until - e.start - 0.5)) * Math.PI) * 520;
+      out.arms = 'cheer';
+      break;
+    }
+    case 'sour':
+      out.sx = 1 - 0.12 * Math.abs(Math.sin(t * 9));
+      break;
+    case 'pie':
+      out.dx = p < 0.08 ? Math.sin(t * 80) * 4 : 0;
+      break;
+  }
+  return out;
+}
+
+/** Hạt/khói theo hiệu ứng (gọi mỗi khung hình). */
+function updateEffect(c, dt) {
+  const e = c.effect;
+  if (!e) return;
+  const t = now - e.start;
+  const s = scaleOf(c);
+  const mouth = { x: c.x + 8 * s, y: c.y - (FOOT_Y - HEAD_Y - 10) * s - (c.jumpY || 0) };
+  e.last += dt;
+  if (e.type === 'fire' && e.last > 0.05) {
+    e.last = 0;
+    for (let i = 0; i < 4; i++) {
+      bits.push({ x: mouth.x, y: mouth.y, vx: rand(120, 260) * (Math.random() < 0.5 ? -1 : 1), vy: rand(-60, 20), life: 0, max: 0.5, e: '🔥', size: rand(18, 30) * s * 1.4 });
+    }
+  } else if (e.type === 'hiccup' && e.last > 0.9) {
+    e.last = 0;
+    w.float(c.x + 20 * s, headTop(c) - 20, 'hic!', '#e1bee7', 26);
+    for (let i = 0; i < 3; i++) bits.push({ x: mouth.x, y: mouth.y, vx: rand(-40, 40), vy: rand(-160, -90), life: 0, max: 1.2, e: '⚫', size: 12 * s * 1.4 });
+  } else if (e.type === 'freeze' && e.last > 0.15) {
+    e.last = 0;
+    bits.push({ x: c.x + rand(-50, 50) * s, y: headTop(c) - 30, vx: rand(-20, 20), vy: rand(40, 90), life: 0, max: 1.4, e: '❄️', size: 20 * s * 1.3 });
+  } else if (e.type === 'rocket' && t > 0.5 && e.last > 0.04) {
+    e.last = 0;
+    const fy = c.y - effectPose(c).dy * s;
+    bits.push({ x: c.x + rand(-10, 10) * s, y: fy, vx: rand(-40, 40), vy: rand(80, 180), life: 0, max: 0.7, e: '💨', size: 26 * s * 1.3 });
+  }
+}
+
+/** Vẽ đè lên nhân vật (toạ độ đã dời về chân nhân vật). */
+function drawEffectOverlay(c, s) {
+  const e = c.effect;
+  if (!e) return;
+  const hy = -(FOOT_Y - HEAD_Y) * s;
+  if (e.type === 'fire') {
+    ctx.fillStyle = `rgba(255,40,20,${0.35 + 0.15 * Math.sin(now * 20)})`;
+    ctx.beginPath();
+    ctx.arc(0, hy, HEAD_R * s, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (e.type === 'freeze') {
+    ctx.fillStyle = 'rgba(120,200,255,0.35)';
+    ctx.beginPath();
+    ctx.roundRect(-34 * s, hy - HEAD_R * s, 68 * s, (FOOT_Y - HEAD_Y + HEAD_R) * s, 18 * s);
+    ctx.fill();
+  } else if (e.type === 'pie') {
+    // kem dính đầy mặt, chảy xuống
+    const a = clamp((e.until - now) / 1, 0, 1);
+    ctx.globalAlpha *= a;
+    ctx.fillStyle = '#fffaf2';
+    ctx.beginPath();
+    ctx.arc(0, hy + 2 * s, (HEAD_R - 2) * s, 0, Math.PI * 2);
+    for (const [dx, dy, r] of [[-14, 10, 9], [10, 14, 10], [0, -16, 11], [-20, -6, 8], [18, -4, 8]]) {
+      ctx.moveTo(dx * s + r * s, hy + dy * s);
+      ctx.arc(dx * s, hy + dy * s, r * s, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    const drip = Math.min(1, (now - e.start) / 2) * 18 * s;
+    ctx.fillRect(-12 * s, hy + 20 * s, 6 * s, drip);
+    ctx.fillRect(8 * s, hy + 18 * s, 5 * s, drip * 0.7);
+    ctx.fillStyle = '#e53935';
+    ctx.beginPath();
+    ctx.arc(2 * s, hy - 20 * s, 4 * s, 0, Math.PI * 2); // quả cherry
+    ctx.fill();
   }
 }
 
@@ -699,6 +931,142 @@ const defaults = {
     w.banner(`🎖️ ${a.user.name} lên ${a.data.to.name}!`, { color: a.data.to.color, big: true, ms: 3500 });
     return 3500;
   },
+  // ---- Gọi đồ, mời, ném bánh ----
+  order_placed(w, a) {
+    const c = w.charFor(a.user, 3500);
+    w.say(c, `Cho mình 1 ${a.data.item.emoji} ${a.data.item.name}!`, 3000);
+    w.emote(c, '⏳', 3000);
+  },
+  order_wait(w, a) {
+    const c = w.charFor(a.user, 2500);
+    w.float(c.x, headTop(c) - 40, `⏳ Đợi ${a.data.waitSec}s nữa nha`, '#b0bec5', 24);
+  },
+  order_busy(w, a) {
+    const c = w.charFor(a.user, 2500);
+    w.float(c.x, headTop(c) - 40, 'Quầy đang đông, thử lại sau 🙏', '#b0bec5', 24);
+  },
+  order_menu(w, a) {
+    w.charFor(a.user, 2500);
+    w.banner('📋 Gõ !goi <món>', { sub: a.data.menu.map((m) => `${m.emoji} ${m.name}`).join(' · '), color: '#ffe082', ms: 5000 });
+  },
+  order_ready(w, a) {
+    const c = w.charFor(a.user, 5000);
+    const it = a.data.item;
+    w.fly(it.emoji, srcOf(c), chest(c), { size: 54, onArrive: () => {
+      w.hold(c, it.emoji, 4000);
+      w.drinkEffect(c, it.effect);
+    } });
+  },
+  treat(w, a) {
+    const from = w.charFor(a.user, 6000);
+    const to = w.charFor(a.data.to, 6000);
+    w.fly('💕', chest(from), chest(to), { size: 50, arc: 220, ms: 1200 });
+    w.fly(a.data.item.emoji, srcOf(to), chest(to), { size: 60, ms: 1300, onArrive: () => {
+      w.hold(to, a.data.item.emoji, 5000);
+      w.drinkEffect(to, a.data.item.effect || 'hearts');
+    } });
+    w.banner(`🥰 ${a.user.name} mời ${a.data.to.name}`, { sub: `${a.data.item.emoji} ${a.data.item.name}`, color: '#f48fb1', ms: 4000 });
+  },
+  throw_pie(w, a) {
+    const from = w.charFor(a.user, 6000);
+    const to = w.charFor(a.data.to, 8000);
+    w.pose(from, 'cheer', 1200);
+    w.fly('🥧', chest(from), { x: to.x, y: headTop(to) + 25 * scaleOf(to) }, { size: 64, arc: 260, ms: 900, onArrive: () => {
+      w.drinkEffect(to, 'pie');
+      w.emote(from, '😂', 3000);
+    } });
+    w.banner(`🥧 ${a.user.name} ném bánh kem vào ${a.data.to.name}!`, { color: '#ffcc80', ms: 3500 });
+  },
+  social_hint(w, a) {
+    const c = w.charFor(a.user, 3000);
+    w.float(c.x, headTop(c) - 40, a.data.kind === 'pie' ? 'Tặng quà trước rồi !nem <tên> 🥧' : 'Tặng quà trước rồi !moi <tên> 🍹', '#ffe082', 24);
+  },
+  social_notfound(w, a) {
+    const c = w.charFor(a.user, 3000);
+    w.float(c.x, headTop(c) - 40, `Không thấy "${a.data.text}" trong quán 🤔`, '#b0bec5', 24);
+  },
+
+  // ---- Nhạc ----
+  music_list(w, a) {
+    if (a.user) w.charFor(a.user, 2500);
+    const list = (a.data.list || []).slice(0, 8).map((s) => `${s.id}. ${s.title}`).join(' · ');
+    w.banner('🎵 Gõ !nhac <số> để chọn bài', { sub: list, color: '#ce93d8', ms: 6000 });
+  },
+  song_requested(w, a) {
+    const c = w.charFor(a.user, 4000);
+    if (a.data.priority) w.banner(`⏩ ${a.user.name} chen bài`, { sub: `🎵 ${a.data.song.title}`, color: '#ce93d8', ms: 3500 });
+    else w.float(c.x, headTop(c) - 40, `🎵 ${a.data.song.title} (#${a.data.position})`, '#ce93d8', 26);
+  },
+  song_voted(w, a) {
+    const c = w.charFor(a.user, 2500);
+    w.float(c.x, headTop(c) - 40, `👍 ${a.data.song.title} (${a.data.votes} phiếu)`, '#ce93d8', 24);
+  },
+  song_wait(w, a) {
+    const c = w.charFor(a.user, 2500);
+    w.float(c.x, headTop(c) - 40, `⏳ ${a.data.waitSec}s nữa mới chọn tiếp được`, '#b0bec5', 24);
+  },
+  song_playing(w, a) {
+    const c = w.charFor(a.user, 2500);
+    w.float(c.x, headTop(c) - 40, '🎶 Bài này đang phát mà!', '#ce93d8', 24);
+  },
+  song_change(w, a) {
+    w.banner(`🎵 ${a.data.song.title}`, { sub: a.user ? `do ${a.user.name} chọn` : a.data.song.artist || '', color: '#ce93d8', ms: 3500 });
+    w.fx.wash({ color: [170, 80, 255], ms: 2500, alpha: 0.15 });
+    if (a.user) w.pose(w.charFor(a.user, 4000), 'cheer', 3000);
+  },
+
+  // ---- Dancer ----
+  dancer_visit(w, a) {
+    const c = w.charFor(a.user, (a.data.sec || 20) * 1000);
+    const d = w.npc(`dancer:${a.data.dancer.id}`);
+    w.banner(`${a.data.dancer.name} tới nhảy cho ${a.user.name}!`, { color: '#80cbc4', ms: 3500 });
+    if (!d) return;
+    const spot = { x: clamp(c.x + 55 * scaleOf(c), 40, W - 40), y: c.y + 12 };
+    w.walk(d, [spot], {
+      speed: 1.8,
+      onDone: () => {
+        d.dance = { move: 'hop', start: now, until: now + (a.data.sec || 20) };
+        w.fx.beam(() => ({ x: (d.x + c.x) / 2, y: c.y }), { ms: (a.data.sec || 20) * 1000, color: [120, 255, 220], width: 150 });
+        setTimeout(() => w.walk(d, [d.home], { speed: 1.5 }), (a.data.sec || 20) * 1000);
+      },
+    });
+  },
+  dancer_queued(w, a) {
+    const c = w.charFor(a.user, 3000);
+    w.float(c.x, headTop(c) - 40, `💃 Dancer đang bận, bạn xếp hàng #${a.data.position}`, '#80cbc4', 24);
+  },
+  dancer_pick(w, a) {
+    const c = w.charFor(a.user, 3000);
+    w.float(c.x, headTop(c) - 40, `💃 Đã chọn ${a.data.dancer.name}, tặng quà để gọi!`, '#80cbc4', 24);
+  },
+  dancer_list(w, a) {
+    w.banner('💃 Gõ !dancer <tên> rồi tặng quà', { sub: a.data.list.map((d) => d.name).join(' · '), color: '#80cbc4', ms: 4500 });
+  },
+
+  // ---- Mục tiêu chung ----
+  goal_reached(w, a) {
+    const fy = floorY();
+    w.fx.flash({ alpha: 0.5, ms: 600 });
+    w.fx.confettiRain({ ms: 6000 });
+    [120, W - 120].forEach((x) => w.fx.sparkFountain(x, fy, { ms: 5000 }));
+    for (const o of w.chars) {
+      w.pose(o, 'cheer', 6000);
+      setTimeout(() => w.fly('🧋', srcOf(o), chest(o), { size: 40, onArrive: () => w.hold(o, '🧋', 8000) }), rand(0, 2000));
+    }
+    // tháp ly trên quầy
+    const sx = srcOf(w.chars[0] || { x: W / 2, y: 900 });
+    w.fx.custom(8000, (cx, p) => {
+      const rows = 5;
+      const k = Math.min(1, p * 6);
+      for (let r = 0; r < rows; r++) {
+        if (r / rows > k) break;
+        for (let i = 0; i <= r; i++) emoji('🧋', sx.x + (i - r / 2) * 46, sx.y - 40 - (rows - r) * 40 + 40 * rows - 200, 40);
+      }
+    });
+    w.banner(`🧋 ${a.data.label}!`, { sub: `Cảm ơn mọi người · góp nhiều nhất: ${a.data.best}`, big: true, color: '#ffca28', ms: 6500 });
+    return 7000;
+  },
+
   unknown(w, a) {
     const c = a.user && w.charFor(a.user, 3000);
     if (c) w.float(c.x, headTop(c) - 40, a.data?.cmd?.label || a.action);
@@ -776,6 +1144,46 @@ function speak(t) {
   speechSynthesis.speak(u);
 }
 
+// ---------------- Nhạc ----------------
+const audio = new Audio();
+audio.preload = 'auto';
+audio.volume = VOLUME;
+let audioSong = null; // { id, startedAt }
+let audioBlocked = false;
+audio.addEventListener('loadedmetadata', () => sendWorld({ type: 'song_meta', songId: audioSong?.id, duration: audio.duration }));
+audio.addEventListener('ended', () => sendWorld({ type: 'song_end', songId: audioSong?.id }));
+
+function currentSong() {
+  return state.features?.music?.now || null;
+}
+function syncMusic() {
+  const song = currentSong();
+  if (!song || !song.file || !sceneId) {
+    if (audioSong) audio.pause();
+    audioSong = null;
+    return;
+  }
+  if (audioSong?.id === song.id && audioSong.startedAt === song.startedAt) return;
+  audioSong = { id: song.id, startedAt: song.startedAt };
+  audio.src = `/locations/${sceneId}/${song.file}`;
+  const pos = Math.max(0, (Date.now() + clockOffset - song.startedAt) / 1000);
+  audio.addEventListener('loadedmetadata', () => {
+    if (pos < audio.duration - 1) audio.currentTime = pos;
+  }, { once: true });
+  audio.play()
+    .then(() => (audioBlocked = false))
+    .catch((err) => (audioBlocked = err?.name === 'NotAllowedError')); // chỉ khi trình duyệt chặn tự phát
+}
+// Trình duyệt thường chặn tự phát nhạc có tiếng: bấm vào trang một lần để bật (OBS không bị chặn)
+addEventListener('pointerdown', () => {
+  if (audioBlocked && audioSong) audio.play().then(() => (audioBlocked = false)).catch(() => {});
+});
+
+let ws = null;
+function sendWorld(msg) {
+  if (ws?.readyState === 1 && msg.songId != null) ws.send(JSON.stringify(msg));
+}
+
 // ---------------- Camera ----------------
 function updateCamera(dt) {
   if ((!cam.target || now > cam.until) && cam.queue.length) {
@@ -836,7 +1244,7 @@ function updateDraw(dt) {
 
 function drawBanners() {
   banners = banners.filter((b) => now - b.born < b.dur);
-  let y = 600;
+  let y = scene?.bannerY ?? 600;
   for (const b of banners) {
     const age = now - b.born;
     const a = clamp(Math.min(age / 0.25, (b.dur - age) / 0.4, 1), 0, 1);
@@ -891,11 +1299,32 @@ function drawHud() {
     ctx.arc(W - 30, 120, 10, 0, Math.PI * 2);
     ctx.fill();
   }
+  drawGoal();
+  if (audioBlocked && audioSong) {
+    pill(W / 2 - 250, 1840, 500, 54, 'rgba(0,0,0,.7)');
+    text('🔇 Bấm vào màn hình để bật nhạc', W / 2, 1867, { size: 26, stroke: null });
+  }
   if (cam.target && cam.z > 1.3) {
     const name = cam.target.viewer?.name || '';
     pill(W / 2 - 230, 210, 460, 60, 'rgba(229,57,53,.85)');
     text(`🎥 Camera: ${name}`, W / 2, 241, { size: 30, stroke: null, maxWidth: 430 });
   }
+}
+
+/** Thanh mục tiêu chung (vd. "Tháp trà sữa cả quán"). */
+function drawGoal() {
+  const g = state.features?.goal;
+  if (!g || !state.location) return;
+  const x = 40;
+  const y = 150;
+  const wdt = W - 80;
+  const k = clamp(g.progress / g.target, 0, 1);
+  pill(x, y, wdt, 40, 'rgba(0,0,0,.55)');
+  const grad = ctx.createLinearGradient(x, 0, x + wdt, 0);
+  grad.addColorStop(0, '#ff8a65');
+  grad.addColorStop(1, '#ffd54f');
+  if (k > 0) pill(x + 3, y + 3, Math.max(34, (wdt - 6) * k), 34, grad);
+  text(`🎯 ${g.label}: ${g.progress}/${g.target} xu`, W / 2, y + 21, { size: 24, stroke: 'rgba(0,0,0,.6)' });
 }
 
 function drawMenu() {
@@ -980,13 +1409,14 @@ async function applyState(s) {
     sceneId = nextId;
     media = scene ? loadMedia(nextId, state.location?.media) : null;
     // giữ đám đông khi đổi địa điểm: mọi người "đi theo" sang chỗ mới
-    const people = [...chars.values()].filter((c) => !c.leaving).map((c) => ({ user: { ...c.viewer, look: c.look }, lastActive: c.lastActive }));
+    const people = [...chars.values()].filter((c) => !c.leaving && !c.npc).map((c) => ({ user: { ...c.viewer, look: c.look }, lastActive: c.lastActive }));
     chars.clear();
     spots = scene ? (typeof scene.spots === 'function' ? scene.spots(w) : scene.spots) || [] : [];
     freeSpots = new Set(spots.map((_, i) => i));
     if (scene) {
       const seed = people.length ? people.map((p) => p.user) : state.crowd || [];
       for (const u of seed.slice(0, maxChars())) spawn(u, false);
+      scene.setup?.(w); // nhân vật phụ của địa điểm (bartender, DJ, dancer...)
     }
     bits = [];
     flyers = [];
@@ -1031,6 +1461,7 @@ function frame(ts) {
   const dt = Math.min(0.05, (ts - last) / 1000);
   last = ts;
   now += dt;
+  beatPos += dt * ((currentSong()?.bpm || DEFAULT_BPM) / 60);
   ctx.clearRect(0, 0, W, H);
 
   if (scene && state.location) {
@@ -1047,7 +1478,7 @@ function frame(ts) {
     scene.foreground?.(ctx, w);
     const all = list.length <= SHOW_ALL_TAGS_UNDER;
     for (const c of list) {
-      const show = all || now < c.busyUntil || c.viewer?.tier?.rank >= 2 || c.look?.wings || c === cam.target;
+      const show = c.npc ? Boolean(c.label) : all || now < c.busyUntil || c.viewer?.tier?.rank >= 2 || c.look?.wings || c === cam.target;
       if (show || c.bubble || c.emote) drawOverlay(c, show);
     }
     fx.update(dt);
@@ -1072,7 +1503,7 @@ requestAnimationFrame(frame);
 
 // ---------------- Kết nối máy chủ ----------------
 function connect() {
-  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?role=world`);
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?role=world`);
   ws.onopen = () => (connected = true);
   ws.onclose = () => {
     connected = false;
@@ -1081,17 +1512,27 @@ function connect() {
   ws.onerror = () => ws.close();
   ws.onmessage = (m) => {
     const msg = JSON.parse(m.data);
-    if (msg.type === 'hello' || msg.type === 'state') applyState(msg.state);
+    if (msg.type === 'hello' || msg.type === 'state') applyState(msg.state).then(onFeatures);
     else if (msg.type === 'action') handle(msg.action);
     else if (msg.type === 'boards') state = { ...state, leaderboard: msg.leaderboard };
+    else if (msg.type === 'features') {
+      state = { ...state, features: msg.features };
+      onFeatures();
+    }
     else if (msg.type === 'paused') state.paused = msg.paused;
     else if (msg.type === 'remove') {
       const c = chars.get(String(msg.userId));
-      if (c) removeChar(c);
+      if (c && !c.npc) removeChar(c);
     }
   };
 }
 connect();
+
+function onFeatures() {
+  const m = state.features?.music?.now;
+  if (m?.serverNow) clockOffset = m.serverNow - Date.now();
+  syncMusic();
+}
 
 // Cho phép thử nhanh trên trình duyệt: window.world
 window.world = { w, handle, cam, get state() { return state; }, get media() { return media; } };

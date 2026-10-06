@@ -5,13 +5,6 @@
   "rules": {
     "chat": [
       {
-        "match": "^!nhac\\s+(.{1,60})$",
-        "action": "request_song",
-        "priority": 2,
-        "minTier": "regular",
-        "say": "{name} chọn bài {text}"
-      },
-      {
         "action": "chat"
       }
     ],
@@ -20,10 +13,10 @@
         "minCoins": 1,
         "action": "gift_small",
         "priority": 1,
-        "say": "Một ly Mojito cho {name}!",
+        "say": "Một ly trà sữa cho {name}!",
         "params": {
-          "emoji": "🍹",
-          "label": "🍹 Mojito"
+          "emoji": "🧋",
+          "label": "🧋 Trà sữa"
         }
       },
       {
@@ -32,8 +25,8 @@
         "priority": 2,
         "say": "Cảm ơn {name}! Lên sàn nào!",
         "params": {
-          "emoji": "🍸",
-          "label": "🍸 Cocktail"
+          "emoji": "🥤",
+          "label": "🥤 Soda cầu vồng"
         }
       },
       {
@@ -42,18 +35,18 @@
         "priority": 3,
         "say": "Phục vụ bàn VIP cho {name}!",
         "params": {
-          "emoji": "🍾",
-          "label": "🍾 Bàn VIP"
+          "emoji": "🎂",
+          "label": "🎂 Bánh kem pháo sáng"
         }
       },
       {
         "minCoins": 5000,
         "action": "gift_huge",
         "priority": 4,
-        "say": "{name} mời cả quán! Cảm ơn {name}!",
+        "say": "{name} bao cả quán! Cảm ơn {name}!",
         "params": {
-          "emoji": "🥂",
-          "label": "🥂 Mời cả quán"
+          "emoji": "🥤",
+          "label": "🥤 Bao cả quán"
         }
       }
     ],
@@ -126,7 +119,180 @@
         "label": "Huy hiệu + cánh",
         "icon": "🪽",
         "priority": 2
+      },
+      {
+        "gift": [
+          "Corgi"
+        ],
+        "action": "call_dancer",
+        "label": "Gọi dancer",
+        "icon": "🐔",
+        "priority": 2
       }
     ]
+  },
+  "features": {
+    "orders": {
+      "_ghi_chu": "Khán giả gõ !goi <món> (miễn phí, mỗi người 1 ly / cooldownSec giây, VIP nhanh gấp đôi). Tặng quà bất kỳ rồi gõ !moi <tên> để mời người khác, !nem <tên> để ném bánh kem.",
+      "cooldownSec": 180,
+      "prepSec": 4,
+      "maxQueue": 12,
+      "creditSec": 90,
+      "treatItem": {
+        "name": "ly Sinh tố Tình bạn",
+        "emoji": "🍹",
+        "effect": "hearts"
+      },
+      "menu": [
+        {
+          "id": "tra-sua",
+          "name": "Trà sữa",
+          "emoji": "🧋",
+          "effect": "hiccup",
+          "aliases": [
+            "ts",
+            "trasua",
+            "milk tea"
+          ]
+        },
+        {
+          "id": "ot",
+          "name": "Nước ớt siêu cay",
+          "emoji": "🌶️",
+          "effect": "fire",
+          "aliases": [
+            "ot",
+            "nuoc ot",
+            "cay"
+          ]
+        },
+        {
+          "id": "tang-luc",
+          "name": "Nước tăng lực",
+          "emoji": "⚡",
+          "effect": "zoom",
+          "aliases": [
+            "tang luc",
+            "redbull",
+            "bo huc"
+          ]
+        },
+        {
+          "id": "sinh-to-da",
+          "name": "Sinh tố đá",
+          "emoji": "🍧",
+          "effect": "freeze",
+          "aliases": [
+            "da",
+            "sinh to",
+            "kem"
+          ]
+        },
+        {
+          "id": "soda",
+          "name": "Soda có ga",
+          "emoji": "🥤",
+          "effect": "rocket",
+          "aliases": [
+            "soda",
+            "nuoc ngot",
+            "coca"
+          ]
+        },
+        {
+          "id": "chanh",
+          "name": "Nước chanh chua lè",
+          "emoji": "🍋",
+          "effect": "sour",
+          "aliases": [
+            "chanh",
+            "chua"
+          ]
+        }
+      ]
+    },
+    "music": {
+      "_ghi_chu": "Khán giả gõ !baihat xem danh sách, !nhac <số> chọn bài, !vote <số> bầu bài. Tặng quà >= priorityCoins xu rồi !nhac để chen lên đầu. file: đường dẫn trong thư mục locations/bar (vd. music/song1.mp3). CHỈ dùng nhạc miễn phí bản quyền. Chưa có file thì vẫn chạy (không có tiếng), đám đông nhảy theo bpm.",
+      "cooldownSec": 120,
+      "priorityCoins": 30,
+      "creditSec": 90,
+      "defaultSec": 180,
+      "playlist": [
+        {
+          "id": 1,
+          "title": "Quẩy Lên Nào",
+          "artist": "DJ Phố Vui",
+          "bpm": 128,
+          "file": "music/song1.mp3"
+        },
+        {
+          "id": 2,
+          "title": "Gà Con Disco",
+          "artist": "DJ Phố Vui",
+          "bpm": 118,
+          "file": "music/song2.mp3"
+        },
+        {
+          "id": 3,
+          "title": "Chill Cuối Tuần",
+          "artist": "DJ Phố Vui",
+          "bpm": 96,
+          "file": "music/song3.mp3"
+        },
+        {
+          "id": 4,
+          "title": "Bass Rung Nhà",
+          "artist": "DJ Phố Vui",
+          "bpm": 140,
+          "file": "music/song4.mp3"
+        },
+        {
+          "id": 5,
+          "title": "Nhảy Như Khủng Long",
+          "artist": "DJ Phố Vui",
+          "bpm": 124,
+          "file": "music/song5.mp3"
+        }
+      ]
+    },
+    "dancers": {
+      "_ghi_chu": "Tặng quà lệnh call_dancer (mặc định Corgi) để gọi dancer. Gõ !dancer <tên> trước khi tặng để chọn dancer.",
+      "visitSec": 20,
+      "list": [
+        {
+          "id": "ga",
+          "name": "Gà Quay",
+          "costume": "chicken",
+          "aliases": [
+            "ga",
+            "gà"
+          ]
+        },
+        {
+          "id": "khung-long",
+          "name": "Khủng Long",
+          "costume": "dino",
+          "aliases": [
+            "khung long",
+            "dino"
+          ]
+        },
+        {
+          "id": "gau",
+          "name": "Gấu Béo",
+          "costume": "bear",
+          "aliases": [
+            "gau",
+            "gấu"
+          ]
+        }
+      ]
+    },
+    "goal": {
+      "label": "Tháp trà sữa cả quán",
+      "target": 300,
+      "growBy": 0.25,
+      "reward": "tower"
+    }
   }
 }

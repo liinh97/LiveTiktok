@@ -62,7 +62,10 @@ export function loadLocations(dir = path.join(ROOT, 'locations')) {
     const meta = path.join(dir, name, 'location.json');
     if (!fs.existsSync(meta)) continue;
     const data = readJson(meta, {});
-    out[name] = { id: name, name: data.name || name, emoji: data.emoji || '📍', rules: data.rules || {} };
+    // Bài nhạc chưa có file thì vẫn giữ trong danh sách nhưng không phát tiếng (thêm file rồi khởi động lại)
+    const pl = data.features?.music?.playlist;
+    if (pl) for (const song of pl) if (song.file && !fs.existsSync(path.join(dir, name, song.file))) song.file = null;
+    out[name] = { id: name, name: data.name || name, emoji: data.emoji || '📍', rules: data.rules || {}, features: data.features || null };
   }
   return out;
 }

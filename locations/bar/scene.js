@@ -255,6 +255,126 @@ function drawMirrorDots(ctx, w) {
   ctx.globalCompositeOperation = 'source-over';
 }
 
+// ---------------- Màn LED sau quầy: nhạc đang phát, hàng chờ, quầy pha chế, chữ chạy hướng dẫn ----------------
+const LED = { x: 100, y: 590, w: 880, h: 220 };
+
+function drawLed(ctx, w, beat) {
+  const { x, y, w: lw, h } = LED;
+  const f = w.features;
+  ctx.save();
+  ctx.fillStyle = 'rgba(6,4,14,0.92)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, lw, h, 14);
+  ctx.fill();
+  ctx.shadowColor = 'rgb(255,60,190)';
+  ctx.shadowBlur = 16 + beat * 10;
+  ctx.strokeStyle = 'rgba(255,90,200,0.9)';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.restore();
+  // vân điểm ảnh của màn LED
+  ctx.fillStyle = 'rgba(255,255,255,0.035)';
+  for (let yy = y + 6; yy < y + h; yy += 6) ctx.fillRect(x + 4, yy, lw - 8, 1);
+
+  const led = (t, tx, ty, size, color, align = 'left', maxWidth) =>
+    w.text(t, tx, ty, { size, color, align, stroke: null, weight: 800, maxWidth });
+
+  // Bên trái: nhạc
+  const m = f.music;
+  const mx = x + 22;
+  led('♪ ĐANG PHÁT', mx, y + 26, 20, '#ce93d8');
+  // cột sóng nhạc nháy theo nhịp
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 10; i++) {
+    const hh = 6 + Math.abs(Math.sin(w.beat * Math.PI + i * 0.9)) * 18 * (0.5 + beat * 0.5);
+    ctx.fillStyle = `hsla(${280 + i * 8},90%,65%,0.8)`;
+    ctx.fillRect(mx + 150 + i * 9, y + 34 - hh, 6, hh);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  if (m?.now) {
+    led(m.now.title, mx, y + 64, 32, '#fff', 'left', 420);
+    led(m.now.by ? `do ${m.now.by} chọn` : m.now.artist || '', mx, y + 96, 20, '#b39ddb', 'left', 420);
+    (m.queue || []).slice(0, 2).forEach((q, i) => {
+      led(`${q.priority ? '⏩' : `${i + 1}.`} ${q.title}  👍${q.votes}`, mx, y + 128 + i * 28, 20, '#e1bee7', 'left', 420);
+    });
+    if (!m.queue?.length) led('Gõ !nhac <số> để chọn bài', mx, y + 128, 20, '#9575cd');
+  } else {
+    led('Chưa có nhạc', mx, y + 64, 28, '#9e9e9e');
+  }
+
+  // Bên phải: quầy pha chế
+  const o = f.orders;
+  const ox = x + lw / 2 + 20;
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(x + lw / 2, y + 14, 2, h - 52);
+  led('🧋 QUẦY PHA CHẾ', ox, y + 26, 20, '#ffcc80');
+  if (o?.queue?.length) {
+    o.queue.slice(0, 4).forEach((q, i) => led(`${q.emoji} ${q.name}`, ox, y + 60 + i * 30, 22, i ? '#ffe0b2' : '#fff', 'left', 380));
+    if (o.waiting > 4) led(`+${o.waiting - 4} đơn nữa`, ox, y + 180, 18, '#bcaaa4');
+  } else if (o) {
+    led('Gõ !goi <món> nha', ox, y + 60, 22, '#ffe0b2');
+    led(o.menu.slice(0, 6).map((m2) => m2.emoji).join(' '), ox, y + 98, 26, '#fff');
+  }
+
+  // Chữ chạy hướng dẫn
+  const dancerCmd = (w.state.location?.commands || []).find((c) => /dancer/i.test(c.label));
+  const tips = [
+    '🧋 !goi <món> gọi đồ',
+    '🎵 !nhac <số> chọn bài · !vote <số>',
+    '🥧 Tặng quà rồi !nem <tên> ném bánh kem',
+    '🍹 Tặng quà rồi !moi <tên> mời nước',
+    dancerCmd ? `🐔 Tặng ${dancerCmd.gift} để gọi dancer` : null,
+  ].filter(Boolean);
+  const msg = tips.join('     ★     ') + '     ★     ';
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x + 8, y + h - 34, lw - 16, 30);
+  ctx.clip();
+  ctx.font = `800 20px "Segoe UI", Arial, sans-serif`;
+  const mw = ctx.measureText(msg).width;
+  const off = (w.t * 90) % mw;
+  for (let k = 0; k < 3; k++) led(msg, x + 12 - off + k * mw, y + h - 19, 20, '#80deea');
+  ctx.restore();
+}
+
+// Bồi bàn: mang đồ từ quầy tới tận người gọi (2 người, đông quá thì cho đồ bay thẳng)
+const deliveries = [];
+const busyWaiters = new Set();
+function deliver(target, emoji, onHand) {
+  deliveries.push({ target, emoji, onHand });
+}
+function runWaiters(w) {
+  for (const id of ['waiter1', 'waiter2']) {
+    if (busyWaiters.has(id) || !deliveries.length) continue;
+    const wt = w.npc(id);
+    if (!wt) return;
+    const d = deliveries.shift();
+    if (!w.chars.includes(d.target)) continue;
+    busyWaiters.add(id);
+    wt.item = { e: d.emoji, until: Infinity };
+    const s = w.scaleOf(d.target);
+    w.walk(wt, [{ x: w.clamp(d.target.x + (wt.home.x < 540 ? -50 : 50) * s, 40, w.W - 40), y: d.target.y + 8 }], {
+      speed: 1.7,
+      onDone: () => {
+        wt.item = null;
+        d.onHand();
+        setTimeout(() => w.walk(wt, [wt.home], { speed: 1.7, onDone: () => busyWaiters.delete(id) }), 500);
+      },
+    });
+  }
+  // quá đông: đồ bay thẳng tới, không chờ bồi bàn
+  while (deliveries.length > 6) {
+    const d = deliveries.shift();
+    w.fly(d.emoji, { x: 540, y: COUNTER_Y - 30 }, w.chest(d.target), { size: 48, onArrive: d.onHand });
+  }
+}
+
+const DANCER_SPOTS = [
+  { x: 330, y: COUNTER_Y - 4 },
+  { x: 760, y: COUNTER_Y - 4 },
+  { x: 960, y: COUNTER_Y - 4 },
+];
+
 // "Drop nhạc": khoảng 35-55 giây một lần cả quán cùng làm một động tác
 // (giơ tay thành làn sóng trái sang phải, nhảy tưng tưng, hoặc vỗ tay trên đầu)
 let nextDrop = 25 + Math.random() * 15;
@@ -263,14 +383,35 @@ let lastT = 0;
 export default {
   maxChars: 250,
   stageFloorY: 1640,
+  bannerY: 830, // dưới màn LED
   spots: SPOTS,
   entrance: { x: 1140, y: 1500 },
   walkPath: WALK,
   source: { x: 540, y: COUNTER_Y - 30 },
   scaleAt,
 
-  /** Engine gọi mỗi khung hình: thỉnh thoảng "drop nhạc", cả quán cùng làm một động tác. */
+  /** Nhân vật phụ: bartender, DJ, 2 bồi bàn, các dancer linh vật nhảy trên quầy. */
+  setup(w) {
+    deliveries.length = 0;
+    busyWaiters.clear();
+    const behind = { clipY: COUNTER_Y - 2 };
+    w.npc('bartender', { x: 560, y: COUNTER_Y + 22, scale: 2.1, style: 77, label: 'Bartender', labelColor: '#ffcc80', ...behind,
+      parts: { outfit: '#212121', outfit2: '#fafafa', shirt: 'collar', bowtie: '#e53935', hairStyle: 'short', accessory: 'none', face: 'happy' } });
+    w.npc('dj', { x: 190, y: COUNTER_Y + 22, scale: 2.1, style: 31, label: '🎧 DJ', labelColor: '#ce93d8', ...behind,
+      parts: { outfit: '#6a1b9a', outfit2: '#ffd54f', hairStyle: 'cap', accessory: 'headphones', face: 'wink' } });
+    w.npc('waiter1', { x: 1010, y: 1060, label: 'Bồi bàn', labelColor: '#b2dfdb',
+      parts: { outfit: '#fafafa', outfit2: '#212121', shirt: 'collar', bowtie: '#212121', accessory: 'none' } });
+    w.npc('waiter2', { x: 70, y: 1060, label: 'Bồi bàn', labelColor: '#b2dfdb',
+      parts: { outfit: '#fafafa', outfit2: '#212121', shirt: 'collar', bowtie: '#212121', accessory: 'none' } });
+    (w.features.dancers?.list || []).slice(0, DANCER_SPOTS.length).forEach((d, i) => {
+      w.npc(`dancer:${d.id}`, { ...DANCER_SPOTS[i], size: 0.95, style: 500 + i, costume: d.costume, label: d.name, labelColor: '#80cbc4',
+        parts: { outfit: { chicken: '#fff8e1', dino: '#43a047', bear: '#8d5a2b' }[d.costume] || '#ff7043', pants: '#5d4037' } });
+    });
+  },
+
+  /** Engine gọi mỗi khung hình: bồi bàn đi giao đồ; thỉnh thoảng "drop nhạc", cả quán cùng làm một động tác. */
   update(w) {
+    runWaiters(w);
     const t = w.t;
     if (t < lastT) nextDrop = t + 25 + Math.random() * 15;
     lastT = t;
@@ -289,7 +430,7 @@ export default {
   background(ctx, w) {
     const { W, H } = w;
     const t = w.t;
-    const beat = Math.pow(Math.max(0, Math.sin(t * Math.PI * 2)), 8); // nhịp ~120 BPM
+    const beat = Math.pow(Math.abs(Math.sin(w.beat * Math.PI)), 8); // nháy theo nhịp bài đang phát
 
     if (!w.hasMedia) {
       // Tường tối
@@ -303,7 +444,7 @@ export default {
 
       // Kệ rượu sau quầy: đèn LED hổ phách hắt từ dưới kệ
       ctx.globalCompositeOperation = 'lighter';
-      for (let k = 0; k < 3; k++) {
+      for (let k = 0; k < 1; k++) {
         const sy = 560 + k * 120;
         const led = ctx.createLinearGradient(0, sy - 90, 0, sy);
         led.addColorStop(0, 'rgba(255,150,60,0)');
@@ -315,7 +456,7 @@ export default {
       }
       ctx.globalCompositeOperation = 'source-over';
       // chai rượu (bóng tối, viền sáng)
-      for (let k = 0; k < 3; k++) {
+      for (let k = 0; k < 1; k++) {
         const sy = 560 + k * 120;
         for (let i = 0; i < 15; i++) {
           const bx = 115 + i * 58 + (k % 2) * 18;
@@ -357,8 +498,6 @@ export default {
       ctx.fillText('Neon Lounge', W / 2, 415);
       ctx.restore();
 
-      // Bartender đứng sau quầy (quầy che nửa người dưới)
-      drawSilhouette(ctx, 540 + Math.sin(t * 0.7) * 60, COUNTER_Y + 120, 0.82, 0.2, [255, 170, 80], 0.5);
 
       // Quầy bar: mặt quầy bóng loáng + đèn hắt dưới mép
       const top = ctx.createLinearGradient(0, COUNTER_Y - 14, 0, COUNTER_Y + 10);
@@ -389,6 +528,8 @@ export default {
       ctx.fillRect(0, 0, W, H);
     }
 
+    drawLed(ctx, w, beat);
+
     // Giàn đèn tròn trên trần + đèn moving head quét + quả cầu gương xoay (cả hai chế độ)
     drawTruss(ctx, w, beat);
     drawMirrorBall(ctx, w);
@@ -406,6 +547,20 @@ export default {
   foreground(ctx, w) {
     const { W, H } = w;
     drawMirrorDots(ctx, w); // đốm sáng từ quả cầu gương rơi lên cả người đứng
+    // bàn DJ đặt trên quầy, che bụng DJ
+    ctx.fillStyle = '#15121c';
+    ctx.beginPath();
+    ctx.roundRect(110, COUNTER_Y - 36, 160, 34, 6);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 8; i++) {
+      const on = Math.sin(w.beat * Math.PI * 2 + i) > 0.3;
+      ctx.fillStyle = on ? `hsla(${i * 40},100%,60%,0.9)` : 'rgba(255,255,255,0.15)';
+      ctx.fillRect(122 + i * 18, COUNTER_Y - 26, 10, 6);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    w.emoji('💿', 140, COUNTER_Y - 12, 22);
+    w.emoji('💿', 240, COUNTER_Y - 12, 22);
     const g = ctx.createLinearGradient(0, 1760, 0, H);
     g.addColorStop(0, 'rgba(0,0,0,0)');
     g.addColorStop(0.5, 'rgba(0,0,0,0.8)');
@@ -423,6 +578,32 @@ export default {
   },
 
   actions: {
+    // Đơn pha xong: bồi bàn bưng tới tận nơi, uống xong là "lên cơn"
+    order_ready(w, a) {
+      const c = w.charFor(a.user, 12000);
+      const it = a.data.item;
+      deliver(c, it.emoji, () => {
+        w.hold(c, it.emoji, 4000);
+        w.drinkEffect(c, it.effect);
+      });
+    },
+    // Mời nước người khác: tim bay từ người mời, bồi bàn mang ly tới người được mời
+    treat(w, a) {
+      const from = w.charFor(a.user, 8000);
+      const to = w.charFor(a.data.to, 12000);
+      w.fly('💕', w.chest(from), w.chest(to), { size: 50, arc: 220, ms: 1200 });
+      deliver(to, a.data.item.emoji, () => {
+        w.hold(to, a.data.item.emoji, 5000);
+        w.drinkEffect(to, a.data.item.effect || 'hearts');
+        w.emote(from, '😏', 3000);
+      });
+      w.banner(`🥰 ${a.user.name} mời ${a.data.to.name}`, { sub: `${a.data.item.emoji} ${a.data.item.name}`, color: '#f48fb1', ms: 4000 });
+    },
+    song_change(w, a, d) {
+      d.song_change(w, a);
+      const dj = w.npc('dj');
+      if (dj) w.pose(dj, 'cheer', 3500);
+    },
     // Quà vừa: đèn rọi + nhảy (mặc định) + phủ màu cả quán theo màu cấp
     gift_medium(w, a, d) {
       d.gift_medium(w, a);

@@ -15,6 +15,7 @@ import { Alerts } from './notify/alerts.js';
 import { Telegram } from './notify/telegram.js';
 import { createHttpServer } from './server/http.js';
 import { Hub } from './server/hub.js';
+import { Features } from './features/index.js';
 import { SourceManager } from './sources/manager.js';
 import { SimulatorSource } from './sources/simulator.js';
 import { TikTokSource } from './sources/tiktok.js';
@@ -40,6 +41,24 @@ function switchSession(location) {
 switchSession(scheduler.current().location);
 
 const pipeline = new Pipeline({ config, store, filter, rules, tiers, scheduler, locations, alerts, getSessionId: () => sessionId });
+
+// Tính năng tương tác theo địa điểm (gọi đồ, đổi nhạc, dancer, mục tiêu chung)
+const features = new Features({
+  locations,
+  makeAction: (...args) => pipeline.makeRaw(...args),
+  findUser: (name, excludeId) => pipeline.findUser(name, excludeId),
+});
+pipeline.features = features;
+features.on('action', (a) => pipeline.emitAction(a));
+let featureTimer = null;
+features.on('change', (loc) => {
+  if (loc !== scheduler.current().location || featureTimer) return;
+  featureTimer = setTimeout(() => {
+    featureTimer = null;
+    hub.broadcast('world', { type: 'features', features: features.publicState(scheduler.current().location) });
+  }, 200);
+});
+setInterval(() => features.tick(scheduler.current().location), 500).unref();
 
 const sources = new SourceManager({
   factories: {
@@ -68,6 +87,7 @@ function worldState() {
     worldName: config.worldName,
     location: cur.location ? { ...locPublic(cur.location), media: findMedia(cur.location), commands: rules.commandMenu(cur.location) } : null,
     crowd: pipeline.presentList(config.world?.maxCrowd ?? 300),
+    features: features.publicState(cur.location),
     crowdTotal: pipeline.present.size,
     next: cur.next ? { ...locPublic(cur.next.location), start: cur.next.start } : null,
     schedule: scheduler.publicSlots(locations),
@@ -162,7 +182,13 @@ const api = {
 
 // ---- Máy chủ ----
 const server = createHttpServer({ config, api });
-const hub = new Hub({ server, onWorldConnect: (send) => send({ type: 'hello', state: worldState() }) });
+const hub = new Hub({
+  server,
+  onWorldConnect: (send) => send({ type: 'hello', state: worldState() }),
+  onMessage: (role, msg) => {
+    if (role === 'world' && typeof msg?.type === 'string') features.onWorldMessage(scheduler.current().location, msg);
+  },
+});
 
 pipeline.on('action', (a) => {
   hub.broadcast('world', { type: 'action', action: a });

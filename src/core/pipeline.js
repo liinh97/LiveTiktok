@@ -10,6 +10,7 @@
 // giữ trong ngày). Máy chủ cũng nhớ ai đang ở trong quán (presence) để trang hiển thị tải lại không mất đám đông.
 
 import { EventEmitter } from 'node:events';
+import { norm } from '../features/norm.js';
 import { fillTemplate, localTime, LruSet } from '../util.js';
 
 export class Pipeline extends EventEmitter {
@@ -94,6 +95,12 @@ export class Pipeline extends EventEmitter {
       look,
     };
     this.present.set(user.id, { user, lastSeen: now });
+
+    // Tính năng tương tác của địa điểm (mục tiêu chung, quyền mời/ném sau khi tặng quà...)
+    const featureExtra =
+      giftInfo && this.features && location
+        ? this.features.afterGift({ user, location, now, gift: ev.gift, coins: ev.gift.coins * ev.gift.count })
+        : [];
     if (this.paused) return this.drop();
     const ctx = { ev, user, location, day, now };
     const rules = this.rules.forLocation(location);
@@ -124,6 +131,11 @@ export class Pipeline extends EventEmitter {
           this.onFilterHit(ev.user, user.name);
           return this.drop();
         }
+        const claimed = this.features && location ? this.features.onChat({ user, location, now, text }) : null;
+        if (claimed) {
+          out.push(...claimed);
+          break;
+        }
         const hit = this.rules.pickChat(location, text, (tierId) => this.tiers.atLeast(total, tierId));
         if (!hit) return this.drop();
         const shown = (hit.match ? hit.match[1] ?? hit.match[0] : text).slice(0, 80);
@@ -134,7 +146,10 @@ export class Pipeline extends EventEmitter {
         const { rule, tierBefore, tierAfter } = giftInfo;
         const g = ev.gift;
         const data = { gift: { name: g.name, count: g.count, coins: g.coins, total: g.coins * g.count, image: g.image } };
-        if (rule) out.push(this.make(ctx, rule, data));
+        if (rule) {
+          const a = this.make(ctx, rule, data);
+          out.push(...(this.features && location ? this.features.transform(a, { user, location, now }) : [a]));
+        }
         if (tierAfter.rank > tierBefore.rank) {
           out.push(
             this.make(
@@ -144,6 +159,7 @@ export class Pipeline extends EventEmitter {
             ),
           );
         }
+        out.push(...featureExtra);
         break;
       }
       default:
@@ -216,6 +232,28 @@ export class Pipeline extends EventEmitter {
       test: ev.test,
       ts: now,
     };
+  }
+
+  /** Hành động không đi qua luật (do tính năng tạo ra). */
+  makeRaw(location, user, action, data = {}, { priority = 1, say = '' } = {}) {
+    return { id: ++this.seq, action, priority, location, user, data, say, test: false, ts: Date.now() };
+  }
+
+  /** Phát hành động từ ngoài luồng sự kiện (vd. đơn pha xong); bỏ qua khi đang tạm dừng. */
+  emitAction(a) {
+    if (this.paused) return;
+    this.counts.actions++;
+    this.emit('action', a);
+  }
+
+  /** Tìm người đang trong quán theo tên (không dấu, khớp đúng > bắt đầu bằng > chứa). */
+  findUser(name, excludeId) {
+    const k = norm(name).replace(/^@/, '');
+    if (!k) return null;
+    const list = [...this.present.values()].filter((p) => p.user.id !== excludeId).sort((a, b) => b.lastSeen - a.lastSeen);
+    const n = (p) => norm(p.user.name);
+    const hit = list.find((p) => n(p) === k) || list.find((p) => n(p).startsWith(k)) || list.find((p) => n(p).includes(k));
+    return hit ? hit.user : null;
   }
 
   /** Ngoại hình hiện tại: kiểu nhân vật giữ mãi, to/nhỏ và cánh chỉ giữ trong ngày. */

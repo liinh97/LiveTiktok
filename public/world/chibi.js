@@ -96,6 +96,12 @@ export function renderChibi(parts, avatar, res = 1.25) {
     g.fillText('♥', 50, 98);
   }
 
+  // linh vật (dancer): đầu thú thay cho đầu người
+  if (parts.costume) {
+    mascotHead(g, parts.costume, hx, hy);
+    return c;
+  }
+
   // tóc phía sau đầu
   g.fillStyle = parts.hair;
   hairBack(g, parts.hairStyle, hx, hy);
@@ -127,6 +133,106 @@ export function renderChibi(parts, avatar, res = 1.25) {
   }
   accessory(g, parts, hx, hy, Boolean(avatar));
   return c;
+}
+
+/** Đầu linh vật hài: gà, khủng long, gấu. */
+function mascotHead(g, kind, x, y) {
+  const eyes = (ey, big = 6) => {
+    g.fillStyle = '#fff';
+    g.beginPath();
+    g.arc(x - 11, ey, big, 0, Math.PI * 2);
+    g.arc(x + 11, ey, big, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = '#1b1b1b';
+    g.beginPath();
+    g.arc(x - 9, ey + 1, big * 0.5, 0, Math.PI * 2);
+    g.arc(x + 13, ey + 1, big * 0.5, 0, Math.PI * 2);
+    g.fill();
+  };
+  if (kind === 'chicken') {
+    g.fillStyle = '#e53935'; // mào
+    g.beginPath();
+    g.arc(x - 9, y - 30, 7, 0, Math.PI * 2);
+    g.arc(x, y - 34, 8, 0, Math.PI * 2);
+    g.arc(x + 9, y - 30, 7, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = '#fffaf0';
+    g.beginPath();
+    g.arc(x, y, HEAD_R, 0, Math.PI * 2);
+    g.fill();
+    eyes(y - 4, 7);
+    g.fillStyle = '#ffb300'; // mỏ
+    g.beginPath();
+    g.moveTo(x - 9, y + 8);
+    g.lineTo(x + 9, y + 8);
+    g.lineTo(x, y + 20);
+    g.closePath();
+    g.fill();
+    g.fillStyle = '#e53935'; // yếm
+    g.beginPath();
+    g.ellipse(x + 3, y + 24, 4, 6, 0, 0, Math.PI * 2);
+    g.fill();
+  } else if (kind === 'dino') {
+    g.fillStyle = '#2e7d32'; // gai lưng
+    g.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const a = Math.PI * (1.1 + i * 0.2);
+      const bx = x + Math.cos(a) * (HEAD_R - 2);
+      const by = y + Math.sin(a) * (HEAD_R - 2);
+      g.moveTo(bx - 7, by + 3);
+      g.lineTo(x + Math.cos(a) * (HEAD_R + 13), y + Math.sin(a) * (HEAD_R + 13));
+      g.lineTo(bx + 7, by + 3);
+    }
+    g.fill();
+    g.fillStyle = '#66bb6a';
+    g.beginPath();
+    g.arc(x, y, HEAD_R, 0, Math.PI * 2);
+    g.fill();
+    g.beginPath();
+    g.ellipse(x, y + 14, 24, 15, 0, 0, Math.PI * 2); // mõm
+    g.fill();
+    eyes(y - 8, 6);
+    g.fillStyle = '#1b5e20';
+    g.beginPath();
+    g.arc(x - 6, y + 12, 2.5, 0, Math.PI * 2);
+    g.arc(x + 6, y + 12, 2.5, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = '#1b5e20';
+    g.lineWidth = 2.5;
+    g.beginPath();
+    g.arc(x, y + 16, 12, Math.PI * 0.15, Math.PI * 0.85);
+    g.stroke();
+  } else {
+    // gấu
+    g.fillStyle = '#8d5a2b';
+    g.beginPath();
+    g.arc(x - 24, y - 24, 11, 0, Math.PI * 2);
+    g.arc(x + 24, y - 24, 11, 0, Math.PI * 2);
+    g.arc(x, y, HEAD_R, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = '#d7a86e';
+    g.beginPath();
+    g.arc(x - 24, y - 24, 5, 0, Math.PI * 2);
+    g.arc(x + 24, y - 24, 5, 0, Math.PI * 2);
+    g.ellipse(x, y + 12, 15, 11, 0, 0, Math.PI * 2);
+    g.fill();
+    eyes(y - 6, 5);
+    g.fillStyle = '#3e2723';
+    g.beginPath();
+    g.ellipse(x, y + 7, 6, 4, 0, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = '#3e2723';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(x, y + 12, 6, Math.PI * 0.15, Math.PI * 0.85);
+    g.stroke();
+  }
+  // má hồng cho dễ thương
+  g.fillStyle = 'rgba(255,110,140,.45)';
+  g.beginPath();
+  g.ellipse(x - 20, y + 8, 5, 3, 0, 0, Math.PI * 2);
+  g.ellipse(x + 20, y + 8, 5, 3, 0, 0, Math.PI * 2);
+  g.fill();
 }
 
 function hairBack(g, style, x, y) {
@@ -231,6 +337,19 @@ function face(g, parts, x, y) {
 
 function accessory(g, parts, x, y, hasAvatar) {
   const a = parts.accessory;
+  if (parts.bowtie) {
+    g.fillStyle = parts.bowtie;
+    g.beginPath();
+    g.moveTo(50, 80);
+    g.lineTo(42, 75);
+    g.lineTo(42, 85);
+    g.closePath();
+    g.moveTo(50, 80);
+    g.lineTo(58, 75);
+    g.lineTo(58, 85);
+    g.closePath();
+    g.fill();
+  }
   if (a === 'headphones') {
     g.strokeStyle = '#222';
     g.lineWidth = 4;

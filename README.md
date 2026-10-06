@@ -99,6 +99,25 @@ Một số nguyên tắc:
   | Doughnut | Đổi nhân vật |
   | Hand Hearts | Huy hiệu + cánh |
 
+  | Corgi | Gọi dancer linh vật (🐔 Gà Quay, 🦖 Khủng Long, 🐻 Gấu Béo) xuống nhảy trước mặt |
+
+  **Khán giả tương tác bằng bình luận** (cấu hình ở `features` trong `locations/bar/location.json`, xử lý ở `src/features/`):
+
+  | Lệnh | Việc |
+  |---|---|
+  | `!goi <món>` | Gọi đồ (miễn phí, mỗi người 1 ly / 3 phút, VIP nhanh gấp đôi): bồi bàn bưng tới tận nơi, uống xong "lên cơn": 🌶️ phun lửa, 🧋 nấc trân châu, ⚡ chạy vòng siêu tốc, 🍧 run cầm cập, 🥤 ợ bay lên trời, 🍋 nhăn mặt |
+  | `!menu` | Xem thực đơn |
+  | `!moi <tên>` | (sau khi tặng quà) mời người khác một ly |
+  | `!nem <tên>` | (sau khi tặng quà) ném bánh kem vào mặt người khác 🥧 |
+  | `!baihat` · `!nhac <số>` · `!vote <số>` | Xem danh sách, chọn bài, bầu bài; tặng quà ≥ 30 xu rồi `!nhac` để chen lên đầu |
+  | `!dancer <tên>` | Chọn dancer trước khi tặng quà gọi dancer |
+
+  **Mục tiêu chung** "Tháp trà sữa cả quán": mọi quà cộng dồn, đủ thì cả quán được trà sữa + pháo sáng + kim tuyến, mục tiêu tăng dần.
+  **Màn LED** sau quầy hiện bài đang phát, hàng chờ nhạc, đơn đang pha và chữ chạy hướng dẫn lệnh.
+  **Nhạc**: thả file vào `locations/bar/music/` (xem README trong đó), sửa danh sách ở `features.music.playlist`, rồi `docker compose restart`.
+  Đám đông nhảy theo đúng nhịp (bpm) bài đang phát. Trên trình duyệt thường phải bấm vào trang một lần để có tiếng (OBS thì không cần);
+  thêm `?vol=0.5` vào URL để chỉnh âm lượng.
+
   Quà khác tính theo bậc xu: ly Mojito → đèn rọi + nhảy → chai rượu cắm pháo sáng → laser, khói CO2, mưa kim tuyến.
   To/nhỏ và cánh giữ trong ngày; kiểu nhân vật (sau khi đổi) giữ mãi. Lệnh `!nhac <tên bài>` cho Khách quen trở lên.
   Tên/giá quà TikTok có thể khác theo khu vực: xem tên quà thật trên bảng điều khiển rồi sửa `commands` cho khớp.

@@ -3,7 +3,7 @@
 import { WebSocketServer } from 'ws';
 
 export class Hub {
-  constructor({ server, onWorldConnect }) {
+  constructor({ server, onWorldConnect, onMessage }) {
     this.clients = new Set();
     this.wss = new WebSocketServer({ server, path: '/ws' });
     this.wss.on('connection', (ws, req) => {
@@ -14,6 +14,14 @@ export class Hub {
       ws.on('pong', () => (ws.isAlive = true));
       ws.on('close', () => this.clients.delete(ws));
       ws.on('error', () => this.clients.delete(ws));
+      ws.on('message', (raw) => {
+        if (raw.length > 2048) return;
+        try {
+          onMessage?.(role, JSON.parse(raw.toString()));
+        } catch {
+          // bỏ qua tin lỗi
+        }
+      });
       if (role === 'world') onWorldConnect?.((msg) => send(ws, msg));
     });
     // Phát hiện kết nối chết (vd. OBS treo) để đếm số trang hiển thị cho đúng

@@ -18,6 +18,12 @@ const CHATS = [
   'cá to quá trời',
   'nem chua rán ngon không ạ',
   'thả tim nè ❤️',
+  '!goi tra sua',
+  '!goi ot',
+  '!goi tang luc',
+  '!goi soda',
+  '!nhac 2',
+  '!vote 4',
 ];
 
 // Giá xu tham khảo; danh sách thật lấy từ TikTok
