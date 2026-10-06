@@ -1,17 +1,21 @@
 // ENGINE của thế giới chung: nhân vật, hiệu ứng, bảng xếp hạng, lịch, chuyển cảnh.
 // Mỗi địa điểm (locations/<id>/scene.js) chỉ cần vẽ nền và (tuỳ chọn) diễn lại các hành động theo cách riêng.
 //
+// NHÂN VẬT: mỗi cảnh có sẵn một đám đông cố định (mặc định 30 nhân vật), KHÔNG gắn với người xem nào.
+// Khi có người tương tác, engine bốc ngẫu nhiên một nhân vật đang rảnh để diễn hiệu ứng; trong lúc diễn,
+// nhân vật đó tạm mang tên + ảnh của người xem, diễn xong lại thành nhân vật vô danh.
+// (Hồ sơ, xu, cấp VIP của từng người xem vẫn được máy chủ lưu đầy đủ.)
+//
 // Hợp đồng của một scene:
 //   export default {
 //     background(ctx, w)          vẽ nền mỗi khung hình (bắt buộc)
 //     foreground?(ctx, w)         vẽ đè lên nhân vật
-//     entrance: {x, y}            nơi nhân vật bước vào
 //     source:   {x, y} | (w, c)=>{x, y}   nơi đồ/quà bay ra (quầy bar, bếp, phao câu...)
-//     spot(w, c) -> {x, y}        chỗ đứng/ngồi cho nhân vật mới
-//     wander?(w, c) -> {x,y}|null đi loanh quanh (null = ngồi yên)
+//     spot(w, c) -> {x, y}        chỗ đứng/ngồi ban đầu của từng nhân vật
+//     wander?(w, c) -> {x,y}|null đi loanh quanh (null = đứng yên)
 //     drawChar?(ctx, w, c)        vẽ thêm cho từng nhân vật (vd. cần câu)
 //     actions?: { tên(w, a, d) }  diễn hành động theo kiểu riêng; d = bộ hành động mặc định
-//     maxChars?: number
+//     maxChars?: number           số nhân vật trong cảnh (mặc định 30)
 //   }
 
 const W = 1080;
@@ -29,7 +33,9 @@ let state = { worldName: '', location: null, next: null, schedule: [], leaderboa
 let scene = null;
 let sceneId = null;
 let connected = false;
-const chars = new Map();
+const chars = new Map(); // id nhân vật -> nhân vật
+const viewerChar = new Map(); // id người xem -> nhân vật đang diễn cho người đó
+const DEFAULT_CHARS = 30;
 let particles = [];
 let floaters = [];
 let flyers = [];
@@ -129,50 +135,29 @@ const w = {
   getChar: (id) => chars.get(String(id)),
   sourceOf: (c) => srcOf(c),
 
-  /** Lấy nhân vật của người xem; chưa có thì cho bước vào từ cửa. */
-  ensureChar(user) {
-    let c = chars.get(user.id);
-    if (c) {
-      Object.assign(c, { name: user.name, tier: user.tier, avatar: user.avatar || c.avatar });
-      c.lastActive = now;
-      if (c.leaving) {
-        c.leaving = false;
-        const s = scene.spot(w, c);
-        c.tx = s.x;
-        c.ty = s.y;
-      }
-      return c;
+  /**
+   * Nhân vật để diễn hiệu ứng cho người xem trong ms mili giây.
+   * Người đó vừa tương tác (nhân vật còn đang diễn) thì dùng lại nhân vật cũ để các hiệu ứng liền mạch;
+   * nếu không thì bốc ngẫu nhiên một nhân vật đang rảnh (hết rảnh thì lấy nhân vật sắp diễn xong nhất).
+   */
+  charFor(user, ms = 6000) {
+    let c = viewerChar.get(user.id);
+    if (!c || !isBusy(c) || c.viewer?.id !== user.id) {
+      const list = [...chars.values()];
+      if (!list.length) return null;
+      const free = list.filter((o) => !isBusy(o));
+      c = free.length ? free[Math.floor(Math.random() * free.length)] : list.reduce((a, b) => (a.busyUntil < b.busyUntil ? a : b));
+      if (c.viewer) viewerChar.delete(c.viewer.id);
+      c.busyUntil = 0;
     }
-    makeRoom();
-    const e = scene.entrance;
-    c = {
-      id: user.id,
-      name: user.name,
-      tier: user.tier,
-      avatar: user.avatar,
-      hue: hue(user.id),
-      x: e.x + rand(-30, 30),
-      y: e.y,
-      tx: e.x,
-      ty: e.y,
-      born: now,
-      lastActive: now,
-      nextWander: now + rand(6, 14),
-    };
-    chars.set(user.id, c);
-    const s = scene.spot(w, c);
-    c.tx = s.x;
-    c.ty = s.y;
+    c.viewer = { id: user.id, name: user.name, avatar: user.avatar, tier: user.tier };
+    c.busyUntil = Math.max(c.busyUntil, now + ms / 1000);
+    viewerChar.set(user.id, c);
     return c;
   },
   moveTo(c, x, y) {
     c.tx = x;
     c.ty = y;
-  },
-  leave(c) {
-    c.leaving = true;
-    c.tx = scene.entrance.x;
-    c.ty = scene.entrance.y;
   },
   /** Chọn chỗ trống trong danh sách ghế. */
   freeSeat(seats, c) {
@@ -284,52 +269,62 @@ const srcOf = (c) => (typeof scene.source === 'function' ? scene.source(w, c) : 
 
 const defaults = {
   enter(w, a) {
-    const c = w.ensureChar(a.user);
+    const c = w.charFor(a.user, 3000);
+    if (!c) return;
     if (a.user.isNew) w.emote(c, '🆕', 3000);
+    w.emote(c, '👋', 2000);
     if (a.user.tier.rank >= 2) w.banner(`${a.user.tier.name} ${a.user.name} đã đến`, { color: a.user.tier.color, ms: 2600 });
   },
   cheer(w, a) {
-    const c = w.ensureChar(a.user);
+    const c = w.charFor(a.user, 2500);
+    if (!c) return;
     w.emote(c, '❤️', 1800);
     w.burst(c.x, c.y - 110, { kind: 'hearts', n: 5, speed: 200 });
   },
   follow(w, a) {
-    const c = w.ensureChar(a.user);
+    const c = w.charFor(a.user, 3500);
+    if (!c) return;
     w.emote(c, '⭐', 3000);
     w.float(c.x, c.y - 150, '+ Theo dõi', '#ffe082');
     w.burst(c.x, c.y - 80, { kind: 'sparkle', n: 14, speed: 260 });
   },
   share(w, a) {
-    const c = w.ensureChar(a.user);
+    const c = w.charFor(a.user, 3500);
+    if (!c) return;
     w.emote(c, '🔗', 3000);
     w.float(c.x, c.y - 150, 'Đã chia sẻ', '#80deea');
   },
   chat(w, a) {
-    const c = w.ensureChar(a.user);
+    const c = w.charFor(a.user, 5000);
+    if (!c) return;
     w.say(c, a.data.text);
   },
   crowd(w, a) {
     w.banner(`+${a.data.count} người vừa vào`, { color: '#b0bec5', ms: 2000 });
   },
   request_song(w, a) {
-    const c = w.ensureChar(a.user);
+    const c = w.charFor(a.user, 5000);
+    if (!c) return;
     w.emote(c, '🎵', 4000);
     w.banner(`🎵 ${a.user.name} chọn bài`, { sub: a.data.text, color: '#ce93d8', ms: 4500 });
   },
   gift_small(w, a) {
-    const c = w.ensureChar(a.user);
+    const c = w.charFor(a.user, 6000);
+    if (!c) return;
     w.fly(itemOf(a), srcOf(c), c, { onArrive: () => w.hold(c, itemOf(a)) });
     w.float(c.x, c.y - 160, giftLabel(a), '#fff59d');
   },
   gift_medium(w, a) {
-    const c = w.ensureChar(a.user);
+    const c = w.charFor(a.user, 6000);
+    if (!c) return;
     w.fly(itemOf(a), srcOf(c), c, { size: 80, onArrive: () => w.hold(c, itemOf(a)) });
     w.spotlight(c, 4000);
     w.burst(c.x, c.y - 80, { kind: 'sparkle', n: 24 });
     w.banner(a.say || `${a.user.name} tặng ${giftLabel(a)}`, { color: a.user.tier.color, ms: 3000 });
   },
   gift_big(w, a) {
-    const c = w.ensureChar(a.user);
+    const c = w.charFor(a.user, 8000);
+    if (!c) return;
     w.fly(itemOf(a), srcOf(c), c, { size: 110, arc: 300, ms: 1200, onArrive: () => w.hold(c, itemOf(a), 15000) });
     w.spotlight(c, 5000);
     w.flash('#fff8e1');
@@ -338,7 +333,8 @@ const defaults = {
     return 4500;
   },
   gift_huge(w, a) {
-    const c = w.ensureChar(a.user);
+    const c = w.charFor(a.user, 9000);
+    if (!c) return;
     w.flash('#fffde7', 700);
     w.fireworks(6500);
     w.spotlight(c, 7000);
@@ -350,13 +346,15 @@ const defaults = {
     return 6500;
   },
   tier_up(w, a) {
-    const c = w.ensureChar(a.user);
+    const c = w.charFor(a.user, 5000);
+    if (!c) return;
     w.burst(c.x, c.y - 80, { kind: 'emoji', e: '🎖️', n: 10, speed: 380 });
     w.banner(`🎖️ ${a.user.name} lên ${a.data.to.name}!`, { color: a.data.to.color, big: true, ms: 3500 });
     return 3500;
   },
   unknown(w, a) {
-    if (a.user) w.float(w.ensureChar(a.user).x, 600, a.action);
+    const c = a.user && w.charFor(a.user, 3000);
+    if (c) w.float(c.x, 600, a.action);
   },
 };
 
@@ -417,14 +415,27 @@ function speak(t) {
 }
 
 // ---------------- Quản lý nhân vật ----------------
-function makeRoom() {
-  const max = scene?.maxChars || 28;
-  const list = [...chars.values()].filter((c) => !c.leaving);
-  if (list.length < max) return;
-  // Mời người lâu không hoạt động và cấp thấp ra trước
-  list.sort((a, b) => a.tier.rank - b.tier.rank || a.lastActive - b.lastActive);
-  w.leave(list[0]);
-  if (list.length > max + 6) chars.delete(list[0].id);
+const isBusy = (c) => Boolean(c.viewer) && now < c.busyUntil;
+
+/** Tạo đám đông cố định cho cảnh mới. */
+function populate() {
+  chars.clear();
+  viewerChar.clear();
+  const n = scene?.maxChars ?? DEFAULT_CHARS;
+  for (let i = 0; i < n; i++) {
+    const c = { id: `npc-${i}`, hue: (i * 47 + 20) % 360, viewer: null, busyUntil: 0, nextWander: now + rand(2, 14) };
+    chars.set(c.id, c);
+    const s = scene.spot(w, c);
+    c.x = c.tx = s.x;
+    c.y = c.ty = s.y;
+  }
+}
+
+/** Bỏ tên người xem khỏi nhân vật (diễn xong, hoặc người đó bị chặn). */
+function release(c) {
+  if (c.viewer && viewerChar.get(c.viewer.id) === c) viewerChar.delete(c.viewer.id);
+  c.viewer = null;
+  c.busyUntil = 0;
 }
 
 function updateChars(dt) {
@@ -437,15 +448,12 @@ function updateChars(dt) {
     if (d <= sp) {
       c.x = c.tx;
       c.y = c.ty;
-      if (c.leaving) chars.delete(c.id);
     } else {
       c.x += (dx / d) * sp;
       c.y += (dy / d) * sp;
     }
-    // Người lâu không hoạt động thì ra về (VIP ở lâu hơn)
-    const idle = now - c.lastActive;
-    if (!c.leaving && idle > (c.tier.rank >= 2 ? 900 : 360)) w.leave(c);
-    if (!c.leaving && !c.moving && now > c.nextWander && scene.wander) {
+    if (c.viewer && now >= c.busyUntil) release(c);
+    if (!c.moving && !isBusy(c) && now > c.nextWander && scene.wander) {
       const p = scene.wander(w, c);
       if (p) w.moveTo(c, p.x, p.y);
       c.nextWander = now + rand(8, 18);
@@ -457,8 +465,9 @@ function drawChar(c) {
   const bob = c.moving ? Math.abs(Math.sin(now * 10)) * 8 : Math.sin(now * 2 + c.hue) * 2;
   const x = c.x;
   const y = c.y - bob;
-  const tierColor = c.tier?.color || '#9aa0a6';
-  const rank = c.tier?.rank || 0;
+  const v = isBusy(c) ? c.viewer : null; // người xem đang được diễn (null = nhân vật vô danh)
+  const tierColor = v?.tier?.color || 'rgba(255,255,255,.35)';
+  const rank = v?.tier?.rank || 0;
 
   // bóng
   ctx.fillStyle = 'rgba(0,0,0,.28)';
@@ -477,17 +486,25 @@ function drawChar(c) {
   ctx.beginPath();
   ctx.arc(x, hy, r, 0, Math.PI * 2);
   ctx.closePath();
-  const im = img(c.avatar);
+  const im = v && img(v.avatar);
   if (im) {
     ctx.clip();
     ctx.drawImage(im, x - r, hy - r, r * 2, r * 2);
   } else {
     ctx.fillStyle = `hsl(${c.hue},65%,72%)`;
     ctx.fill();
-    text((c.name || '?').trim().charAt(0).toUpperCase(), x, hy + 2, { size: 34, color: '#263238', stroke: null });
+    if (v) text((v.name || '?').trim().charAt(0).toUpperCase(), x, hy + 2, { size: 34, color: '#263238', stroke: null });
+    else {
+      // mặt đơn giản cho nhân vật vô danh
+      ctx.fillStyle = '#263238';
+      ctx.beginPath();
+      ctx.arc(x - 12, hy - 4, 4, 0, Math.PI * 2);
+      ctx.arc(x + 12, hy - 4, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   ctx.restore();
-  ctx.lineWidth = 4 + rank * 1.5;
+  ctx.lineWidth = v ? 4 + rank * 1.5 : 2;
   ctx.strokeStyle = tierColor;
   ctx.beginPath();
   ctx.arc(x, hy, r, 0, Math.PI * 2);
@@ -499,11 +516,13 @@ function drawChar(c) {
   // biểu cảm
   if (c.emote && now < c.emote.until) emoji(c.emote.e, x + 40, hy - 40, 38);
 
-  // tên
-  ctx.font = `700 24px ${FONT}`;
-  const tw = Math.min(ctx.measureText(c.name).width, 220) + 22;
-  pill(x - tw / 2, c.y + 12, tw, 34, 'rgba(0,0,0,.55)');
-  text(c.name, x, c.y + 30, { size: 24, color: rank >= 1 ? tierColor : '#fff', stroke: null, maxWidth: 220 });
+  // tên người xem (chỉ khi đang diễn cho người đó)
+  if (v) {
+    ctx.font = `700 24px ${FONT}`;
+    const tw = Math.min(ctx.measureText(v.name).width, 220) + 22;
+    pill(x - tw / 2, c.y + 12, tw, 34, 'rgba(0,0,0,.55)');
+    text(v.name, x, c.y + 30, { size: 24, color: rank >= 1 ? tierColor : '#fff', stroke: null, maxWidth: 220 });
+  }
 
   // bong bóng chat
   if (c.bubble && now < c.bubble.until) {
@@ -674,6 +693,8 @@ async function applyState(s) {
     scene = mod?.default || null;
     sceneId = nextId;
     chars.clear();
+    viewerChar.clear();
+    if (scene) populate();
     particles = [];
     flyers = [];
     props = [];
@@ -753,7 +774,13 @@ function connect() {
     else if (msg.type === 'action') handle(msg.action);
     else if (msg.type === 'boards') state = { ...state, leaderboard: msg.leaderboard };
     else if (msg.type === 'paused') state.paused = msg.paused;
-    else if (msg.type === 'remove') chars.delete(String(msg.userId));
+    else if (msg.type === 'remove') {
+      const c = viewerChar.get(String(msg.userId));
+      if (c) {
+        c.bubble = null;
+        release(c);
+      }
+    }
   };
 }
 connect();

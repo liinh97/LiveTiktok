@@ -74,7 +74,7 @@ npm test         # chạy kiểm thử
 | Canh chừng | `src/core/watchdog.js` | Báo khi mất nguồn trong giờ mở cửa, khi lâu không có sự kiện, khi không có trang hiển thị |
 | Báo động | `src/notify/` | Hiện trên bảng điều khiển + Telegram, có thời gian chờ để không spam |
 | Máy chủ | `src/server/` | Trang hiển thị, bảng điều khiển, API, proxy ảnh đại diện, `/health` |
-| Engine hiển thị | `public/world/engine.js` | Tải cảnh theo địa điểm, chuyển cảnh, xếp hàng hiệu ứng lớn, nhân vật, hiệu ứng cơ bản |
+| Engine hiển thị | `public/world/engine.js` | Tải cảnh theo địa điểm, chuyển cảnh, xếp hàng hiệu ứng lớn, hiệu ứng cơ bản. Mỗi cảnh có sẵn một đám đông cố định (mặc định 30 nhân vật, chỉnh bằng `maxChars`); ai tương tác thì bốc ngẫu nhiên một nhân vật tạm mang tên người đó để diễn |
 
 Một số nguyên tắc:
 - **Quà luôn được ghi**, kể cả khi đang tạm dừng hiệu ứng, khi người tặng bị chặn, hoặc ngoài giờ mở cửa.

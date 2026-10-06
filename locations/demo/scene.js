@@ -3,7 +3,6 @@
 
 export default {
   maxChars: 30,
-  entrance: { x: 540, y: 1980 },
   source: { x: 540, y: 900 },
 
   spot: (w) => ({ x: w.rand(100, w.W - 100), y: w.rand(1050, 1700) }),
