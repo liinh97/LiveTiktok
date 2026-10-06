@@ -8,3 +8,6 @@ Gợi ý: https://pixabay.com/music/ (tìm "party", "edm", "funny", "disco"), nh
 
 `bpm` (nhịp mỗi phút) giúp đám đông nhảy đúng nhịp: bài sôi động ~120-140, bài chill ~90-100.
 Chưa có file thì hệ thống vẫn "phát" (không có tiếng): hiện tên bài, đổi bài theo thời gian, đám đông nhảy theo bpm.
+
+Hiện có sẵn `song1.mp3` … `song5.mp3` do `scripts/tao-nhac.py` tự tổng hợp (disco, không bản quyền, khớp `bpm` trong playlist).
+Muốn tạo lại: `python3 scripts/tao-nhac.py` (cần numpy + ffmpeg). Thay bằng nhạc khác thì chỉ cần ghi đè file cùng tên.
