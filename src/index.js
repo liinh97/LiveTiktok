@@ -66,7 +66,9 @@ function worldState() {
   const cur = scheduler.current();
   return {
     worldName: config.worldName,
-    location: cur.location ? { ...locPublic(cur.location), media: findMedia(cur.location) } : null,
+    location: cur.location ? { ...locPublic(cur.location), media: findMedia(cur.location), commands: rules.commandMenu(cur.location) } : null,
+    crowd: pipeline.presentList(config.world?.maxCrowd ?? 300),
+    crowdTotal: pipeline.present.size,
     next: cur.next ? { ...locPublic(cur.next.location), start: cur.next.start } : null,
     schedule: scheduler.publicSlots(locations),
     tiers: config.tiers,
@@ -91,6 +93,8 @@ const api = {
       source: sources.status,
       sourceOrder: sources.order,
       location: locPublic(cur.location),
+      commands: rules.commandMenu(cur.location),
+      crowdTotal: pipeline.present.size,
       slot: cur.slot,
       next: cur.next ? { ...locPublic(cur.next.location), start: cur.next.start } : null,
       overridden: cur.overridden,
@@ -126,6 +130,7 @@ const api = {
     if (!id) throw new Error('Thiếu id người dùng');
     filter.block(id);
     store.block(id, name);
+    pipeline.present.delete(id);
     hub.broadcast('world', { type: 'remove', userId: id });
     log.warn(`Đã chặn ${name || id}`);
   },

@@ -1,12 +1,17 @@
 // 🧪 DEMO — cảnh tối giản để kiểm tra luồng. Dùng toàn bộ hiệu ứng mặc định của engine.
 // Làm địa điểm mới: sao chép thư mục này, đổi nền và (tuỳ chọn) thêm actions riêng.
 
-export default {
-  maxChars: 22,
-  source: { x: 540, y: 900 },
+const SPOTS = [];
+for (let y = 1060; y <= 1700; y += 55) {
+  for (let x = 70; x <= 1010; x += 75) SPOTS.push({ x: x + (Math.random() - 0.5) * 30, y: y + (Math.random() - 0.5) * 10 });
+}
 
-  spot: (w) => ({ x: w.rand(100, w.W - 100), y: w.rand(1050, 1700) }),
-  wander: (w, c) => (Math.random() < 0.5 ? { x: w.clamp(c.x + w.rand(-160, 160), 100, w.W - 100), y: w.clamp(c.y + w.rand(-80, 80), 1050, 1700) } : null),
+export default {
+  maxChars: 120,
+  source: { x: 540, y: 900 },
+  spots: SPOTS,
+  entrance: { x: 540, y: 1980 },
+  scaleAt: (y) => 0.7 + ((y - 1060) / 640) * 0.4,
 
   background(ctx, w) {
     const g = ctx.createLinearGradient(0, 0, 0, w.H);
@@ -14,7 +19,6 @@ export default {
     g.addColorStop(1, '#37474f');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w.W, w.H);
-    // Lưới sàn
     ctx.strokeStyle = 'rgba(255,255,255,.06)';
     ctx.lineWidth = 2;
     for (let x = 0; x <= w.W; x += 90) {
@@ -29,11 +33,6 @@ export default {
       ctx.lineTo(w.W, y);
       ctx.stroke();
     }
-    // Điểm quà bay ra
-    ctx.fillStyle = 'rgba(255,255,255,.08)';
-    ctx.beginPath();
-    ctx.arc(540, 900, 70, 0, Math.PI * 2);
-    ctx.fill();
     w.emoji('🎁', 540, 900, 64);
   },
 };

@@ -25,7 +25,8 @@
   "pipeline": {
     "dedupeSize": 5000,
     "likeThrottleSec": 10,
-    "joinsPerSecond": 3,
+    "joinsPerSecond": 8,
+    "presenceMinutes": 15,
     "crowdFlushMs": 2000
   },
 

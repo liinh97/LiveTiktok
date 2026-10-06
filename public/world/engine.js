@@ -1,28 +1,26 @@
-// ENGINE của thế giới chung: nền, đám đông, hiệu ứng, chuyển cảnh, hàng chờ quà lớn.
+// ENGINE của thế giới chung: nền, đám đông, camera, hiệu ứng, menu lệnh quà, chuyển cảnh, hàng chờ quà lớn.
 //
-// NHÂN VẬT: mỗi cảnh có sẵn một đám đông cố định, KHÔNG gắn với người xem nào.
-// Khi có người tương tác, engine bốc ngẫu nhiên một nhân vật đang rảnh để diễn hiệu ứng; trong lúc diễn,
-// trên đầu nhân vật hiện thẻ (ảnh đại diện + tên) của người xem, diễn xong lại thành nhân vật vô danh.
-// (Hồ sơ, xu, cấp VIP của từng người xem vẫn được máy chủ lưu đầy đủ.)
+// NHÂN VẬT: mỗi người xem có MỘT nhân vật chibi riêng (mặt là ảnh đại diện nếu có), vào phòng là xuất hiện,
+// ở lại cho tới khi lâu không tương tác. Ngoại hình (kiểu nhân vật, to/nhỏ, cánh) do máy chủ giữ trong user.look.
+// Quán đầy (maxChars) thì người lâu không tương tác nhất ra về nhường chỗ.
 //
 // Hợp đồng của một scene (locations/<id>/scene.js):
 //   export default {
 //     background(ctx, w)          vẽ nền mỗi khung hình (bắt buộc). w.hasMedia = true nếu đã có video/ảnh nền thật
-//                                 (thả locations/<id>/assets/background.mp4|webm|jpg|png|webp là tự dùng, không cần khai báo)
-//     foreground?(ctx, w)         vẽ đè lên nhân vật (vd. mép quầy bar phía trước)
+//                                 (thả locations/<id>/assets/background.mp4|webm|jpg|png|webp là tự dùng)
+//     foreground?(ctx, w)         vẽ đè lên nhân vật
+//     spots: [{x,y}] | (w)=>[]    các chỗ đứng (nên nhiều hơn maxChars)
+//     entrance: {x, y}            cửa vào
+//     walkPath?: [{x,y}]          đường đi vòng quanh quán (lệnh "Đi vòng")
 //     source: {x,y} | (w,c)=>{x,y} nơi đồ/quà bay ra (quầy bar, bếp...)
-//     spots?: [{x,y}] | (w)=>[]   chỗ đứng cố định của đám đông (mỗi chỗ một người, không chồng nhau)
-//     spot?(w, c) -> {x,y}        hoặc tự chọn chỗ cho từng nhân vật
 //     scaleAt?(y) -> number       to/nhỏ theo độ xa gần (mặc định 1)
-//     charHeight?: number         chiều cao nhân vật (px, chưa nhân tỉ lệ) để đặt thẻ tên trên đầu
-//     drawBody?(ctx, w, c, o)     tự vẽ thân nhân vật; o = { x, y, s (tỉ lệ), lit (màu viền khi đang diễn | null) }
-//     wander?(w, c) -> {x,y}|null đi loanh quanh (null = đứng yên)
-//     update?(w, dt)              gọi mỗi khung hình (vd. cho đám đông tự cử động)
+//     update?(w, dt)              gọi mỗi khung hình
 //     stageFloorY?: number        độ cao sàn để đặt pháo sáng / khói (mặc định 1500)
 //     actions?: { tên(w, a, d) }  diễn hành động theo kiểu riêng; d = bộ hành động mặc định
-//     maxChars?: number           số nhân vật (mặc định 24)
+//     maxChars?: number           số nhân vật tối đa (mặc định 250; ghi đè bằng ?max= trên URL)
 //   }
 
+import { drawArms, drawWings, FOOT_Y, HEAD_R, HEAD_Y, partsOf, renderChibi, renderTag, SPRITE_H, SPRITE_W } from './chibi.js';
 import { createFx } from './fx.js';
 
 const W = 1080;
@@ -31,20 +29,24 @@ const FONT = '"Segoe UI", "Noto Sans", "Helvetica Neue", Arial, sans-serif';
 const EMOJI_FONT = '"Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
 const params = new URLSearchParams(location.search);
 const TTS = params.get('tts') === '1';
-const DEFAULT_CHARS = 24;
+const MAX_OVERRIDE = Number(params.get('max')) || null;
+const DEFAULT_MAX = 250;
+const IDLE_LEAVE_SEC = 15 * 60;
+const SHOW_ALL_TAGS_UNDER = 60; // ít người thì hiện tên tất cả
 
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
 
 // ---------------- Trạng thái ----------------
-let state = { worldName: '', location: null, next: null, schedule: [], leaderboard: [], paused: false };
+let state = { worldName: '', location: null, next: null, schedule: [], leaderboard: [], crowd: [], paused: false };
 let scene = null;
 let sceneId = null;
 let media = null; // { el, kind }
 let connected = false;
-const chars = new Map(); // id nhân vật -> nhân vật
-const viewerChar = new Map(); // id người xem -> nhân vật đang diễn cho người đó
-let bits = []; // hạt đơn giản: tim, emoji
+const chars = new Map(); // id người xem -> nhân vật
+let spots = [];
+let freeSpots = new Set();
+let bits = [];
 let floaters = [];
 let flyers = [];
 let banners = [];
@@ -52,6 +54,7 @@ const stageQueue = [];
 let stageBusyUntil = 0;
 let transition = null;
 let now = 0; // giây
+const cam = { x: W / 2, y: H / 2, z: 1, target: null, until: 0, queue: [] };
 
 const fx = createFx({ ctx, W, H, clock: () => now });
 
@@ -115,7 +118,6 @@ function wrap(t, maxW, size) {
   }
   return lines;
 }
-/** '#ffca28' -> [255, 202, 40] để dùng với fx */
 function rgb(hex, fallback = [255, 220, 150]) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
   if (!m) return fallback;
@@ -123,10 +125,13 @@ function rgb(hex, fallback = [255, 220, 150]) {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-// ---------------- API cho scene ----------------
-const scaleOf = (c) => scene?.scaleAt?.(c.y) ?? 1;
-const headTop = (c) => c.y - (scene?.charHeight ?? 136) * scaleOf(c);
+// ---------------- Toạ độ nhân vật ----------------
+const sceneScale = (y) => scene?.scaleAt?.(y) ?? 1;
+const scaleOf = (c) => sceneScale(c.y) * (c.sm ?? 1);
+const headTop = (c) => c.y - (FOOT_Y - (HEAD_Y - HEAD_R)) * scaleOf(c) - (c.jumpY || 0);
+const chest = (c) => ({ x: c.x, y: c.y - 55 * scaleOf(c) - (c.jumpY || 0) });
 
+// ---------------- API cho scene ----------------
 const w = {
   W,
   H,
@@ -142,7 +147,7 @@ const w = {
     return now;
   },
   get chars() {
-    return [...chars.values()];
+    return [...chars.values()].filter((c) => !c.leaving);
   },
   get state() {
     return state;
@@ -152,40 +157,28 @@ const w = {
   },
   scaleOf,
   headTop,
-  /** Vị trí ngực nhân vật (để đèn rọi, tia lửa nhắm vào). */
-  chest: (c) => ({ x: c.x, y: c.y - (scene?.charHeight ?? 136) * scaleOf(c) * 0.45 }),
+  chest,
   sourceOf: (c) => srcOf(c),
 
-  /**
-   * Nhân vật để diễn cho người xem trong ms mili giây.
-   * Người đó vừa tương tác (nhân vật còn đang diễn) thì dùng lại nhân vật cũ để các hiệu ứng liền mạch;
-   * nếu không thì bốc ngẫu nhiên một nhân vật đang rảnh (hết rảnh thì lấy nhân vật sắp diễn xong nhất).
-   */
-  charFor(user, ms = 6000) {
-    let c = viewerChar.get(user.id);
-    if (!c || !isBusy(c) || c.viewer?.id !== user.id) {
-      const list = [...chars.values()];
-      if (!list.length) return null;
-      const free = list.filter((o) => !isBusy(o));
-      c = free.length ? free[Math.floor(Math.random() * free.length)] : list.reduce((a, b) => (a.busyUntil < b.busyUntil ? a : b));
-      if (c.viewer) viewerChar.delete(c.viewer.id);
-      c.busyUntil = 0;
-    }
-    c.viewer = { id: user.id, name: user.name, avatar: user.avatar, tier: user.tier };
+  /** Nhân vật của người xem (chưa có thì cho bước vào từ cửa). ms: thời gian hiện thẻ tên nổi bật. */
+  charFor(user, ms = 5000) {
+    let c = chars.get(user.id);
+    if (!c || c.leaving) c = spawn(user, true);
+    else applyUser(c, user);
+    c.lastActive = now;
     c.busyUntil = Math.max(c.busyUntil, now + ms / 1000);
-    viewerChar.set(user.id, c);
     return c;
   },
   moveTo(c, x, y) {
     c.tx = x;
     c.ty = y;
   },
-  /** Về lại chỗ đứng ban đầu. */
   goHome(c) {
+    c.path = null;
     c.tx = c.home.x;
     c.ty = c.home.y;
   },
-  /** Tư thế tạm thời: 'cheer' (giơ tay), 'dance' (nhún nhảy)... scene tự vẽ theo c.pose. */
+  /** Tư thế tạm thời: 'cheer' (giơ tay), 'dance' (nhảy), 'wave' (vẫy). */
   pose(c, name, ms = 3000) {
     c.pose = name;
     c.poseUntil = now + ms / 1000;
@@ -199,14 +192,12 @@ const w = {
   hold(c, e, ms = 4000) {
     c.item = { e, until: now + ms / 1000 };
   },
-  /** Đồ bay từ điểm này tới điểm/nhân vật kia theo đường vòng cung. */
   fly(e, from, to, { ms = 900, size = 64, arc = 160, onArrive } = {}) {
     flyers.push({ e, x0: from.x, y0: from.y, to, born: now, dur: ms / 1000, size, arc, onArrive });
   },
-  /** Tim / emoji bay lên. */
   hearts(x, y, { n = 5, e = null } = {}) {
     for (let i = 0; i < n; i++) {
-      bits.push({ x, y, vx: rand(-60, 60), vy: rand(-260, -160), life: 0, max: rand(1, 1.6), e: e || ['❤️', '💖', '💕'][i % 3], size: rand(24, 36) });
+      bits.push({ x, y, vx: rand(-60, 60), vy: rand(-260, -160), life: 0, max: rand(1, 1.6), e: e || ['❤️', '💖', '💕'][i % 3], size: rand(22, 32) });
     }
   },
   float(x, y, t, color = '#fff', size = 30) {
@@ -216,82 +207,362 @@ const w = {
     banners.push({ t, sub, color, big, born: now, dur: ms / 1000 });
     if (banners.length > 3) banners.shift();
   },
+  /** Camera zoom vào nhân vật trong ms mili giây (xếp hàng nếu đang zoom người khác). */
+  camera(c, ms = 4500) {
+    cam.queue.push({ c, ms });
+  },
 };
 
-// ---------------- Hành động mặc định (dùng thư viện fx) ----------------
+// ---------------- Đám đông ----------------
+function maxChars() {
+  return MAX_OVERRIDE || scene?.maxChars || DEFAULT_MAX;
+}
+
+function applyUser(c, user) {
+  c.viewer = { id: user.id, name: user.name, avatar: user.avatar, tier: user.tier || { rank: 0 } };
+  const look = user.look || c.look || { style: 0, scale: 1, wings: false };
+  if (!c.look || c.look.style !== look.style) c.sprite = null;
+  c.look = look;
+  c.parts = partsOf(look.style);
+}
+
+function takeSpot() {
+  if (!freeSpots.size) {
+    const s = spots[Math.floor(Math.random() * spots.length)] || { x: W / 2, y: H * 0.7 };
+    return { i: -1, x: s.x + rand(-20, 20), y: s.y + rand(-8, 8) };
+  }
+  const list = [...freeSpots];
+  const i = list[Math.floor(Math.random() * list.length)];
+  freeSpots.delete(i);
+  return { i, ...spots[i] };
+}
+
+function spawn(user, walkIn) {
+  const old = chars.get(user.id);
+  if (old) {
+    chars.delete(user.id);
+    if (old.spotIndex >= 0) freeSpots.add(old.spotIndex);
+  }
+  if (chars.size >= maxChars()) evict();
+  const s = takeSpot();
+  const e = scene?.entrance || { x: W / 2, y: H + 60 };
+  const c = {
+    id: user.id,
+    seed: Math.random(),
+    spotIndex: s.i,
+    home: { x: s.x, y: s.y },
+    x: walkIn ? e.x + rand(-30, 30) : s.x,
+    y: walkIn ? e.y : s.y,
+    tx: s.x,
+    ty: s.y,
+    sm: 1,
+    busyUntil: 0,
+    lastActive: now,
+  };
+  applyUser(c, user);
+  c.sm = c.look.scale || 1;
+  chars.set(user.id, c);
+  return c;
+}
+
+/** Quán đầy: mời người lâu không tương tác nhất (không đang diễn) ra về. */
+function evict() {
+  let victim = null;
+  for (const c of chars.values()) {
+    if (c.leaving || now < c.busyUntil) continue;
+    if (!victim || c.lastActive < victim.lastActive) victim = c;
+  }
+  if (victim) leave(victim);
+  // vẫn quá đông (toàn người đang diễn) thì xoá thẳng người cũ nhất
+  if (chars.size >= maxChars() + 20) {
+    const oldest = [...chars.values()].sort((a, b) => a.lastActive - b.lastActive)[0];
+    removeChar(oldest);
+  }
+}
+function leave(c) {
+  c.leaving = now;
+}
+function removeChar(c) {
+  if (!c) return;
+  chars.delete(c.id);
+  if (c.spotIndex >= 0) freeSpots.add(c.spotIndex);
+}
+
+function updateChars(dt) {
+  for (const c of [...chars.values()]) {
+    if (c.leaving && now - c.leaving > 0.6) {
+      removeChar(c);
+      continue;
+    }
+    if (!c.leaving && now - c.lastActive > IDLE_LEAVE_SEC) leave(c);
+    // đi theo đường (lệnh "Đi vòng") rồi về chỗ
+    if (c.path?.length && Math.hypot(c.tx - c.x, c.ty - c.y) < 4) {
+      const p = c.path.shift();
+      c.tx = p.x;
+      c.ty = p.y;
+      if (!c.path.length) c.path = null;
+    }
+    const dx = c.tx - c.x;
+    const dy = c.ty - c.y;
+    const d = Math.hypot(dx, dy);
+    const sp = (c.path ? 330 : 240) * dt;
+    c.moving = d > 2;
+    if (d <= sp) {
+      c.x = c.tx;
+      c.y = c.ty;
+    } else {
+      c.x += (dx / d) * sp;
+      c.y += (dy / d) * sp;
+    }
+    // to/nhỏ mượt theo ngoại hình
+    const target = c.look?.scale || 1;
+    c.sm += (target - c.sm) * Math.min(1, dt * 5);
+    if (c.pose && now >= c.poseUntil) c.pose = null;
+    // nhảy 1 cái
+    c.jumpY = 0;
+    c.spin = 0;
+    if (c.jump) {
+      const p = (now - c.jump) / 1.1;
+      if (p >= 1) c.jump = 0;
+      else {
+        c.jumpY = Math.sin(Math.PI * p) * 150 * sceneScale(c.y);
+        c.spin = p > 0.12 && p < 0.88 ? ((p - 0.12) / 0.76) * Math.PI * 2 : 0;
+      }
+    }
+  }
+}
+
+function spriteOf(c) {
+  const av = c.viewer?.avatar ? img(c.viewer.avatar) : null;
+  const res = (c.look?.scale || 1) > 1.3 ? 2 : 1.25;
+  const key = `${c.look.style}|${av ? 1 : 0}|${res}`;
+  if (!c.sprite || c.spriteKey !== key) {
+    c.sprite = renderChibi(c.parts, av, res);
+    c.spriteKey = key;
+  }
+  return c.sprite;
+}
+
+function tagOf(c) {
+  const v = c.viewer;
+  const key = `${v.name}|${v.tier?.color}|${v.tier?.rank}|${c.look?.wings ? 1 : 0}`;
+  if (!c.tag || c.tagKey !== key) {
+    c.tag = renderTag(v.name, v.tier?.color || '#fff', v.tier?.rank || 0, Boolean(c.look?.wings), FONT);
+    c.tagKey = key;
+  }
+  return c.tag;
+}
+
+function drawChar(c, groove) {
+  const s0 = sceneScale(c.y);
+  const s = s0 * c.sm;
+  const busy = now < c.busyUntil;
+  const alpha = c.leaving ? clamp(1 - (now - c.leaving) / 0.6, 0, 1) : 1;
+  const bob = c.moving ? Math.abs(Math.sin(now * 12 + c.seed * 9)) * 7 * s0 : groove(c) * 6 * s0;
+  const x = c.x;
+  const y = c.y - bob - c.jumpY;
+  ctx.globalAlpha = alpha;
+
+  if (c.look?.wings) drawWings(ctx, x, y, s, now);
+  if (busy && c.viewer?.tier?.rank >= 1) {
+    // quầng sáng theo màu cấp VIP khi đang tương tác
+    const col = rgb(c.viewer.tier.color);
+    const g = ctx.createRadialGradient(x, y - 60 * s, 0, x, y - 60 * s, 90 * s);
+    g.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},0.45)`);
+    g.addColorStop(1, `rgba(${col[0]},${col[1]},${col[2]},0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(x - 90 * s, y - 150 * s, 180 * s, 180 * s);
+  }
+
+  const sp = spriteOf(c);
+  const dw = SPRITE_W * s;
+  const dh = SPRITE_H * s;
+  if (c.spin) {
+    ctx.save();
+    ctx.translate(x, y - dh / 2);
+    ctx.rotate(c.spin);
+    ctx.drawImage(sp, -dw / 2, -dh / 2, dw, dh);
+    ctx.restore();
+  } else {
+    // nhún: hơi bẹp/giãn theo nhịp
+    const squash = c.moving ? 0 : groove(c) * 0.04;
+    ctx.drawImage(sp, x - (dw * (1 + squash)) / 2, y - dh * (1 - squash) - 2 * s, dw * (1 + squash), dh * (1 - squash));
+    drawArms(ctx, x, y, s, c.parts, c.pose || (c.moving && c.path ? 'dance' : null), now, c.seed);
+  }
+  if (c.item && now < c.item.until) emoji(c.item.e, x + 26 * s, y - 62 * s, 30 * s);
+  ctx.globalAlpha = 1;
+}
+
+/** Thẻ tên, biểu cảm, bong bóng chat (vẽ sau cả đám đông để không bị người khác che). */
+function drawOverlay(c, showTag) {
+  if (c.leaving) return;
+  const s = scaleOf(c);
+  const top = headTop(c);
+  let y = top - 6;
+  if (showTag) {
+    const tag = tagOf(c);
+    const ts = clamp(sceneScale(c.y), 0.5, 1) * (now < c.busyUntil ? 1.05 : 0.8);
+    const tw = tag.width * ts;
+    const th = tag.height * ts;
+    ctx.drawImage(tag, clamp(c.x - tw / 2, 4, W - tw - 4), y - th, tw, th);
+    y -= th + 4;
+  }
+  if (c.emote && now < c.emote.until) emoji(c.emote.e, c.x + 30 * s, top + 10 * s, 28 * clamp(s, 0.6, 1.4));
+  if (c.bubble && now < c.bubble.until) {
+    const lines = wrap(c.bubble.text, 300, 24);
+    let bw = 0;
+    ctx.font = `600 24px ${FONT}`;
+    for (const l of lines) bw = Math.max(bw, ctx.measureText(l).width);
+    bw += 28;
+    const bh = lines.length * 30 + 16;
+    const bx = clamp(c.x - bw / 2, 8, W - bw - 8);
+    const by = y - bh - 10;
+    pill(bx, by, bw, bh, 'rgba(255,255,255,.95)', 15);
+    ctx.fillStyle = 'rgba(255,255,255,.95)';
+    ctx.beginPath();
+    ctx.moveTo(c.x - 8, by + bh);
+    ctx.lineTo(c.x + 8, by + bh);
+    ctx.lineTo(c.x, by + bh + 10);
+    ctx.fill();
+    lines.forEach((l, i) => text(l, bx + bw / 2, by + 23 + i * 30, { size: 24, color: '#1a1a1a', weight: 600, stroke: null }));
+  }
+}
+
+// ---------------- Hành động mặc định ----------------
 const giftLabel = (a) => {
   const g = a.data?.gift;
   return g ? `${g.count > 1 ? `${g.count}× ` : ''}${g.name}` : '';
 };
-// Biểu tượng đồ/quà: scene đặt qua luật (params.emoji), mặc định là hộp quà
 const itemOf = (a) => a.data?.params?.emoji || '🎁';
 const labelOf = (a) => a.data?.params?.label || giftLabel(a);
+const cmdLabel = (a) => (a.data?.cmd ? `${a.data.cmd.icon} ${a.data.cmd.label}` : giftLabel(a));
 const srcOf = (c) => (typeof scene.source === 'function' ? scene.source(w, c) : scene.source);
 const floorY = () => scene?.stageFloorY ?? 1500;
 const tierRgb = (a) => rgb(a.user?.tier?.color);
+const at = (c) => () => ({ x: c.x, y: c.y });
 
 const defaults = {
   enter(w, a) {
-    const c = w.charFor(a.user, 2500);
-    if (!c) return;
-    if (a.user.isNew) w.emote(c, '🆕', 2500);
+    const c = w.charFor(a.user, 3000);
+    if (a.user.isNew) w.emote(c, '🆕', 3000);
+    else w.pose(c, 'wave', 1500);
     if (a.user.tier.rank >= 2) {
-      w.charFor(a.user, 4000);
-      w.fx.halo(() => ({ x: c.x, y: c.y }), { color: tierRgb(a) });
+      w.charFor(a.user, 5000);
+      w.fx.halo(at(c), { color: tierRgb(a) });
       w.banner(`${a.user.tier.name} ${a.user.name} đã đến`, { color: a.user.tier.color, ms: 2600 });
     }
   },
   cheer(w, a) {
-    const c = w.charFor(a.user, 1800);
-    if (!c) return;
+    const c = w.charFor(a.user, 1500);
     w.hearts(c.x, headTop(c), { n: 3 });
   },
   follow(w, a) {
     const c = w.charFor(a.user, 3000);
-    if (!c) return;
     w.fx.sparkBurst(c.x, headTop(c), { n: 30, color: [255, 230, 140] });
-    w.float(c.x, headTop(c) - 70, '+ Theo dõi', '#ffe082');
+    w.float(c.x, headTop(c) - 50, '+ Theo dõi', '#ffe082');
   },
   share(w, a) {
     const c = w.charFor(a.user, 3000);
-    if (!c) return;
-    w.float(c.x, headTop(c) - 70, 'Đã chia sẻ', '#80deea');
+    w.float(c.x, headTop(c) - 50, 'Đã chia sẻ', '#80deea');
   },
   chat(w, a) {
     const c = w.charFor(a.user, 4500);
-    if (!c) return;
     w.say(c, a.data.text);
   },
   crowd(w, a) {
     w.banner(`+${a.data.count} người vừa vào`, { color: '#b0bec5', ms: 2000 });
   },
   request_song(w, a) {
-    const c = w.charFor(a.user, 5000);
-    if (!c) return;
+    w.charFor(a.user, 5000);
     w.fx.wash({ color: [170, 80, 255], ms: 2500 });
     w.banner(`🎵 ${a.user.name} chọn bài`, { sub: a.data.text, color: '#ce93d8', ms: 4500 });
   },
+
+  // ---- Lệnh theo loại quà ----
+  jump(w, a) {
+    const c = w.charFor(a.user, 3500);
+    c.jump = now;
+    setTimeout(() => w.fx.sparkBurst(c.x, c.y, { n: 18, color: [255, 240, 200], speed: 260 }), 1050);
+    w.float(c.x, headTop(c) - 40, cmdLabel(a), '#fff59d');
+  },
+  walk_around(w, a) {
+    const c = w.charFor(a.user, 12000);
+    const path = scene.walkPath || defaultWalkPath();
+    // bắt đầu từ điểm gần nhất, đi hết một vòng rồi về chỗ
+    let k = 0;
+    path.forEach((p, i) => {
+      if (Math.hypot(p.x - c.x, p.y - c.y) < Math.hypot(path[k].x - c.x, path[k].y - c.y)) k = i;
+    });
+    c.path = [...path.slice(k), ...path.slice(0, k), c.home];
+    c.tx = c.x;
+    c.ty = c.y;
+    w.float(c.x, headTop(c) - 40, cmdLabel(a), '#fff59d');
+  },
+  grow(w, a) {
+    const c = w.charFor(a.user, 4000);
+    w.fx.sparkBurst(c.x, chest(c).y, { n: 40, color: [255, 220, 120] });
+    w.float(c.x, headTop(c) - 50, '⬆ To lên!', '#ffe082');
+  },
+  shrink(w, a) {
+    const c = w.charFor(a.user, 4000);
+    w.fx.sparkBurst(c.x, chest(c).y, { n: 24, color: [160, 220, 255] });
+    w.float(c.x, headTop(c) - 40, '⬇ Nhỏ lại!', '#80deea');
+  },
+  change_char(w, a) {
+    const c = w.charFor(a.user, 4000);
+    // phụt khói rồi mới đổi hình
+    const p = chest(c);
+    w.fx.custom(700, (cx, q) => {
+      for (let i = 0; i < 7; i++) {
+        const ang = (i / 7) * Math.PI * 2;
+        const r = 30 + q * 60;
+        const g = cx.createRadialGradient(p.x + Math.cos(ang) * r, p.y + Math.sin(ang) * r * 0.7, 0, p.x + Math.cos(ang) * r, p.y + Math.sin(ang) * r * 0.7, 40);
+        g.addColorStop(0, `rgba(240,240,255,${0.8 * (1 - q)})`);
+        g.addColorStop(1, 'rgba(240,240,255,0)');
+        cx.fillStyle = g;
+        cx.fillRect(p.x - 140, p.y - 140, 280, 280);
+      }
+    });
+    w.float(c.x, headTop(c) - 40, '✨ Đổi nhân vật', '#e1bee7');
+  },
+  wings(w, a) {
+    const c = w.charFor(a.user, 6000);
+    w.fx.halo(at(c), { color: [120, 210, 255], ms: 2500 });
+    w.fx.sparkBurst(c.x, chest(c).y, { n: 50, color: [140, 220, 255] });
+    w.banner(`🪽 ${a.user.name} nhận huy hiệu + cánh!`, { color: '#81d4fa', ms: 3000 });
+  },
+  firework(w, a) {
+    const c = w.charFor(a.user, 4000);
+    w.fx.firework(c.x, headTop(c));
+    setTimeout(() => w.fx.firework(c.x, headTop(c), { top: 420 }), 350);
+    w.pose(c, 'cheer', 2000);
+  },
+  camera(w, a) {
+    const c = w.charFor(a.user, 6000);
+    w.camera(c, 4500);
+    w.pose(c, 'wave', 4500);
+  },
+
+  // ---- Quà theo bậc xu ----
   gift_small(w, a) {
     const c = w.charFor(a.user, 4000);
-    if (!c) return;
-    w.fly(itemOf(a), srcOf(c), w.chest(c), {
-      size: 54,
+    w.fly(itemOf(a), srcOf(c), chest(c), {
+      size: 50,
       onArrive: () => {
-        w.fx.sparkBurst(c.x, w.chest(c).y, { n: 26 });
+        w.fx.sparkBurst(c.x, chest(c).y, { n: 26 });
         w.hold(c, itemOf(a), 3000);
       },
     });
-    w.float(c.x, headTop(c) - 80, labelOf(a), '#fff59d');
+    w.float(c.x, headTop(c) - 50, labelOf(a), '#fff59d');
   },
   gift_medium(w, a) {
     const c = w.charFor(a.user, 6000);
-    if (!c) return;
-    w.fx.beam(() => ({ x: c.x, y: c.y }), { ms: 5000, color: tierRgb(a) });
+    w.fx.beam(at(c), { ms: 5000, color: tierRgb(a) });
     w.pose(c, 'dance', 5000);
-    w.fly(itemOf(a), srcOf(c), w.chest(c), {
-      size: 70,
+    w.fly(itemOf(a), srcOf(c), chest(c), {
+      size: 64,
       onArrive: () => {
-        w.fx.sparkBurst(c.x, w.chest(c).y, { n: 50 });
+        w.fx.sparkBurst(c.x, chest(c).y, { n: 50 });
         w.hold(c, itemOf(a), 4000);
       },
     });
@@ -299,19 +570,18 @@ const defaults = {
   },
   gift_big(w, a) {
     const c = w.charFor(a.user, 8000);
-    if (!c) return;
     w.fx.flash({ alpha: 0.35 });
-    w.fx.beam(() => ({ x: c.x, y: c.y }), { ms: 6500, color: [255, 215, 120], width: 150 });
+    w.fx.beam(at(c), { ms: 6500, color: [255, 215, 120], width: 150 });
     w.fx.sparkFountain(110, floorY(), { ms: 4000 });
     w.fx.sparkFountain(W - 110, floorY(), { ms: 4000 });
     w.pose(c, 'cheer', 5000);
-    w.fly(itemOf(a), srcOf(c), w.chest(c), { size: 96, arc: 260, ms: 1200, onArrive: () => w.hold(c, itemOf(a), 6000) });
+    w.camera(c, 3500);
+    w.fly(itemOf(a), srcOf(c), chest(c), { size: 90, arc: 260, ms: 1200, onArrive: () => w.hold(c, itemOf(a), 6000) });
     w.banner(a.say || `${a.user.name} tặng ${giftLabel(a)}`, { sub: giftLabel(a), big: true, color: '#ffca28', ms: 5000 });
     return 5000;
   },
   gift_huge(w, a) {
     const c = w.charFor(a.user, 9500);
-    if (!c) return;
     const fy = floorY();
     w.fx.strobe({ ms: 1200 });
     w.fx.flash({ alpha: 0.6, ms: 700 });
@@ -320,34 +590,48 @@ const defaults = {
     setTimeout(() => [W * 0.35, W * 0.65].forEach((x) => w.fx.co2Jet(x, fy, { ms: 1200 })), 3500);
     [90, W * 0.33, W * 0.67, W - 90].forEach((x) => w.fx.sparkFountain(x, fy, { ms: 5500, height: 800 }));
     w.fx.confettiRain({ ms: 6500 });
-    w.fx.beam(() => ({ x: c.x, y: c.y }), { ms: 8000, color: [255, 215, 120], width: 160 });
+    w.fx.beam(at(c), { ms: 8000, color: [255, 215, 120], width: 160 });
     for (const o of w.chars) w.pose(o, 'cheer', 6500);
+    w.camera(c, 3000);
     w.banner(a.say || `Cảm ơn ${a.user.name}!`, { sub: giftLabel(a), big: true, color: '#ff8a65', ms: 7000 });
     return 7500;
   },
   tier_up(w, a) {
     const c = w.charFor(a.user, 5000);
-    if (!c) return;
     const col = rgb(a.data.to.color);
-    w.fx.halo(() => ({ x: c.x, y: c.y }), { color: col, ms: 3000 });
-    w.fx.beam(() => ({ x: c.x, y: c.y }), { ms: 3500, color: col });
+    w.fx.halo(at(c), { color: col, ms: 3000 });
+    w.fx.beam(at(c), { ms: 3500, color: col });
     w.banner(`🎖️ ${a.user.name} lên ${a.data.to.name}!`, { color: a.data.to.color, big: true, ms: 3500 });
     return 3500;
   },
   unknown(w, a) {
     const c = a.user && w.charFor(a.user, 3000);
-    if (c) w.float(c.x, headTop(c) - 70, a.action);
+    if (c) w.float(c.x, headTop(c) - 40, a.data?.cmd?.label || a.action);
   },
 };
+
+function defaultWalkPath() {
+  const xs = spots.map((s) => s.x);
+  const ys = spots.map((s) => s.y);
+  const x0 = Math.min(...xs);
+  const x1 = Math.max(...xs);
+  const y0 = Math.min(...ys);
+  const y1 = Math.max(...ys);
+  return [
+    { x: x0, y: y1 },
+    { x: x0, y: y0 },
+    { x: x1, y: y0 },
+    { x: x1, y: y1 },
+  ];
+}
 
 // ---------------- Xử lý hành động ----------------
 function handle(a) {
   if (!scene || transition) {
-    if ((a.priority || 0) >= 3) stageQueue.push(a); // quà lớn không được mất khi đang chuyển cảnh
+    if ((a.priority || 0) >= 3) stageQueue.push(a);
     return;
   }
   if (!state.location && a.action.startsWith('gift')) {
-    // Ngoài giờ mở cửa: vẫn cảm ơn bằng thông báo
     w.banner(a.say || `Cảm ơn ${a.user.name}!`, { sub: giftLabel(a), color: '#ffca28' });
     speak(a.say);
     return;
@@ -381,7 +665,6 @@ function pumpStage() {
   stageBusyUntil = now + (run(a) || 3000) / 1000 + 0.3;
 }
 
-// Đọc tên bằng giọng nói của trình duyệt (bật bằng ?tts=1). Không dồn hàng quá 3 câu.
 let speaking = 0;
 let viVoice = null;
 function speak(t) {
@@ -396,144 +679,32 @@ function speak(t) {
   speechSynthesis.speak(u);
 }
 
-// ---------------- Đám đông ----------------
-const isBusy = (c) => Boolean(c.viewer) && now < c.busyUntil;
-
-function populate() {
-  chars.clear();
-  viewerChar.clear();
-  const spots = typeof scene.spots === 'function' ? scene.spots(w) : scene.spots;
-  const n = spots ? Math.min(spots.length, scene.maxChars ?? spots.length) : scene.maxChars ?? DEFAULT_CHARS;
-  const order = spots ? [...spots].sort(() => Math.random() - 0.5) : null;
-  for (let i = 0; i < n; i++) {
-    const c = { id: `npc-${i}`, seed: Math.random(), hue: (i * 47 + 20) % 360, viewer: null, busyUntil: 0, nextWander: now + rand(2, 14) };
-    const s = order ? order[i] : scene.spot(w, c);
-    c.home = { x: s.x, y: s.y };
-    c.x = c.tx = s.x;
-    c.y = c.ty = s.y;
-    chars.set(c.id, c);
+// ---------------- Camera ----------------
+function updateCamera(dt) {
+  if ((!cam.target || now > cam.until) && cam.queue.length) {
+    const next = cam.queue.shift();
+    cam.target = next.c;
+    cam.until = now + next.ms / 1000;
   }
+  if (cam.target && (now > cam.until || !chars.has(cam.target.id))) cam.target = null;
+  const tz = cam.target ? 2.1 : 1;
+  const tx = cam.target ? cam.target.x : W / 2;
+  // đặt đầu nhân vật hơi dưới giữa khung, chừa chỗ cho banner phía trên
+  const ty = cam.target ? headTop(cam.target) - 40 / Math.max(cam.z, 1) : H / 2;
+  const k = Math.min(1, dt * 3.5);
+  cam.z += (tz - cam.z) * k;
+  cam.x += (tx - cam.x) * k;
+  cam.y += (ty - cam.y) * k;
+  // không để lộ ra ngoài khung
+  const hw = W / 2 / cam.z;
+  const hh = H / 2 / cam.z;
+  cam.x = clamp(cam.x, hw, W - hw);
+  cam.y = clamp(cam.y, hh, H - hh);
 }
-
-function release(c) {
-  if (c.viewer && viewerChar.get(c.viewer.id) === c) viewerChar.delete(c.viewer.id);
-  c.viewer = null;
-  c.busyUntil = 0;
-}
-
-function updateChars(dt) {
-  for (const c of chars.values()) {
-    const dx = c.tx - c.x;
-    const dy = c.ty - c.y;
-    const d = Math.hypot(dx, dy);
-    const sp = 240 * dt;
-    c.moving = d > 2;
-    if (d <= sp) {
-      c.x = c.tx;
-      c.y = c.ty;
-    } else {
-      c.x += (dx / d) * sp;
-      c.y += (dy / d) * sp;
-    }
-    if (c.pose && now >= c.poseUntil) c.pose = null;
-    if (c.viewer && now >= c.busyUntil) release(c);
-    if (!c.moving && !isBusy(c) && now > c.nextWander && scene.wander) {
-      const p = scene.wander(w, c);
-      if (p) w.moveTo(c, p.x, p.y);
-      c.nextWander = now + rand(8, 18);
-    }
-  }
-}
-
-/** Thân nhân vật mặc định (dạng hoạt hình đơn giản) khi scene không tự vẽ. */
-function defaultBody(c, { x, y, s, lit }) {
-  ctx.fillStyle = 'rgba(0,0,0,.28)';
-  ctx.beginPath();
-  ctx.ellipse(x, c.y + 4, 38 * s, 11 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = `hsl(${c.hue},45%,42%)`;
-  ctx.beginPath();
-  ctx.roundRect(x - 30 * s, y - 70 * s, 60 * s, 70 * s, [26 * s, 26 * s, 12 * s, 12 * s]);
-  ctx.fill();
-  ctx.fillStyle = `hsl(${c.hue},55%,70%)`;
-  ctx.beginPath();
-  ctx.arc(x, y - 100 * s, 34 * s, 0, Math.PI * 2);
-  ctx.fill();
-  if (lit) {
-    ctx.strokeStyle = lit;
-    ctx.lineWidth = 4;
-    ctx.stroke();
-  }
-}
-
-function drawChar(c) {
-  const v = isBusy(c) ? c.viewer : null;
-  const s = scaleOf(c);
-  const dance = c.pose === 'dance' ? Math.sin(now * 9 + c.seed * 6) : 0;
-  const bob = c.moving ? Math.abs(Math.sin(now * 10)) * 6 * s : Math.abs(dance) * 10 * s + Math.sin(now * 1.6 + c.seed * 9) * 1.5 * s;
-  const x = c.x + dance * 6 * s;
-  const y = c.y - bob;
-  const lit = v ? v.tier?.color || '#ffffff' : null;
-  (scene.drawBody ? (o) => scene.drawBody(ctx, w, c, o) : (o) => defaultBody(c, o))({ x, y, s, lit });
-
-  const top = headTop(c) - bob;
-  if (c.item && now < c.item.until) emoji(c.item.e, x + 34 * s, y - (scene?.charHeight ?? 136) * s * 0.5, 40 * s);
-
-  if (!v) return;
-  // Thẻ người xem trên đầu: ảnh đại diện + tên
-  const ts = clamp(s, 0.8, 1.15);
-  ctx.font = `700 ${Math.round(22 * ts)}px ${FONT}`;
-  const name = v.name || '';
-  const nw = Math.min(ctx.measureText(name).width, 200 * ts);
-  const ar = 19 * ts;
-  const tw = nw + ar * 2 + 26 * ts;
-  const th = ar * 2 + 8 * ts;
-  const tx = clamp(x - tw / 2, 8, W - tw - 8);
-  const ty = top - th - 14 * ts;
-  const rank = v.tier?.rank || 0;
-  pill(tx, ty, tw, th, 'rgba(10,8,18,.78)');
-  ctx.strokeStyle = lit;
-  ctx.lineWidth = rank >= 1 ? 2.5 : 1.2;
-  ctx.beginPath();
-  ctx.roundRect(tx, ty, tw, th, th / 2);
-  ctx.stroke();
-  const ax = tx + 4 * ts + ar;
-  const ay = ty + th / 2;
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(ax, ay, ar, 0, Math.PI * 2);
-  ctx.clip();
-  const im = img(v.avatar);
-  if (im) ctx.drawImage(im, ax - ar, ay - ar, ar * 2, ar * 2);
-  else {
-    ctx.fillStyle = `hsl(${c.hue},45%,55%)`;
-    ctx.fillRect(ax - ar, ay - ar, ar * 2, ar * 2);
-    text(name.trim().charAt(0).toUpperCase() || '?', ax, ay + 1, { size: 20 * ts, stroke: null });
-  }
-  ctx.restore();
-  text(name, ax + ar + 8 * ts, ay + 1, { size: 22 * ts, align: 'left', color: rank >= 1 ? lit : '#fff', stroke: null, maxWidth: 200 * ts });
-  if (rank >= 3) emoji('👑', ax, ty - 6 * ts, 26 * ts);
-  if (c.emote && now < c.emote.until) emoji(c.emote.e, tx + tw + 4, ay, 30 * ts);
-
-  // Bong bóng chat
-  if (c.bubble && now < c.bubble.until) {
-    const lines = wrap(c.bubble.text, 320, 25);
-    let bw = 0;
-    ctx.font = `600 25px ${FONT}`;
-    for (const l of lines) bw = Math.max(bw, ctx.measureText(l).width);
-    bw += 30;
-    const bh = lines.length * 31 + 18;
-    const bx = clamp(x - bw / 2, 10, W - bw - 10);
-    const by = ty - bh - 12;
-    pill(bx, by, bw, bh, 'rgba(255,255,255,.94)', 16);
-    ctx.fillStyle = 'rgba(255,255,255,.94)';
-    ctx.beginPath();
-    ctx.moveTo(x - 9, by + bh);
-    ctx.lineTo(x + 9, by + bh);
-    ctx.lineTo(x, by + bh + 11);
-    ctx.fill();
-    lines.forEach((l, i) => text(l, bx + bw / 2, by + 24 + i * 31, { size: 25, color: '#1a1a1a', weight: 600, stroke: null }));
-  }
+function applyCamera() {
+  ctx.translate(W / 2, H / 2);
+  ctx.scale(cam.z, cam.z);
+  ctx.translate(-cam.x, -cam.y);
 }
 
 // ---------------- Hạt đơn giản, đồ bay, chữ nổi ----------------
@@ -546,7 +717,6 @@ function updateDraw(dt) {
     emoji(p.e, p.x, p.y, p.size);
   }
   ctx.globalAlpha = 1;
-
   flyers = flyers.filter((f) => {
     const p = (now - f.born) / f.dur;
     if (p >= 1) {
@@ -557,7 +727,6 @@ function updateDraw(dt) {
     emoji(f.e, f.x0 + (f.to.x - f.x0) * e, f.y0 + (f.to.y - f.y0) * e - Math.sin(Math.PI * p) * f.arc, f.size);
     return true;
   });
-
   floaters = floaters.filter((f) => {
     const p = (now - f.born) / f.dur;
     if (p >= 1) return false;
@@ -604,7 +773,7 @@ function drawBanners() {
   }
 }
 
-// ---------------- HUD tối giản ----------------
+// ---------------- HUD + menu lệnh quà ----------------
 function drawHud() {
   const g = ctx.createLinearGradient(0, 0, 0, 200);
   g.addColorStop(0, 'rgba(0,0,0,.55)');
@@ -614,12 +783,37 @@ function drawHud() {
   const loc = state.location;
   text(state.worldName || '', 40, 62, { size: 32, color: '#ffe082', align: 'left' });
   text(loc ? `${loc.emoji} ${loc.name}` : '🌙 Đang nghỉ', 40, 110, { size: 48, align: 'left' });
+  if (loc) {
+    const n = w.chars.length;
+    pill(W - 230, 40, 200, 52, 'rgba(0,0,0,.5)');
+    text(`👥 ${n} người`, W - 130, 67, { size: 28, stroke: null });
+  }
   if (!connected) {
     ctx.fillStyle = '#e53935';
     ctx.beginPath();
-    ctx.arc(W - 30, 60, 10, 0, Math.PI * 2);
+    ctx.arc(W - 30, 120, 10, 0, Math.PI * 2);
     ctx.fill();
   }
+  if (cam.target && cam.z > 1.3) {
+    const name = cam.target.viewer?.name || '';
+    pill(W / 2 - 230, 210, 460, 60, 'rgba(229,57,53,.85)');
+    text(`🎥 Camera: ${name}`, W / 2, 241, { size: 30, stroke: null, maxWidth: 430 });
+  }
+}
+
+function drawMenu() {
+  const cmds = state.location?.commands;
+  if (!cmds?.length) return;
+  const rowH = 50;
+  const x = W - 300;
+  const y0 = 1150;
+  pill(x - 12, y0 - 52, 300, cmds.length * rowH + 66, 'rgba(10,8,20,.55)', 18);
+  text('🎁 Tặng quà để:', x + 138, y0 - 24, { size: 26, color: '#ffe082', stroke: null });
+  cmds.forEach((c, i) => {
+    const y = y0 + 12 + i * rowH;
+    emoji(c.icon, x + 22, y + 4, 30);
+    text(c.label, x + 50, y + 4, { size: 26, align: 'left', stroke: 'rgba(0,0,0,.6)', maxWidth: 230 });
+  });
 }
 
 function drawClosed() {
@@ -642,7 +836,6 @@ function loadMedia(id, m) {
     v.setAttribute('playsinline', '');
     v.src = url(m.video);
     v.addEventListener('error', () => {
-      // không có video thì thử ảnh, không có nữa thì scene tự vẽ nền
       if (m.image && media?.el === v) media = { el: imageEl(url(m.image)), kind: 'image' };
     });
     v.play().catch(() => {});
@@ -667,10 +860,8 @@ function drawMedia() {
   if (media.kind === 'video' && el.paused) el.play().catch(() => {});
   const sw = media.kind === 'video' ? el.videoWidth : el.naturalWidth;
   const sh = media.kind === 'video' ? el.videoHeight : el.naturalHeight;
-  const k = Math.max(W / sw, H / sh); // phủ kín khung, cắt phần thừa
-  const dw = sw * k;
-  const dh = sh * k;
-  ctx.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  const k = Math.max(W / sw, H / sh);
+  ctx.drawImage(el, (W - sw * k) / 2, (H - sh * k) / 2, sw * k, sh * k);
 }
 
 // ---------------- Chuyển cảnh ----------------
@@ -691,12 +882,20 @@ async function applyState(s) {
     scene = mod?.default || null;
     sceneId = nextId;
     media = scene ? loadMedia(nextId, state.location?.media) : null;
+    // giữ đám đông khi đổi địa điểm: mọi người "đi theo" sang chỗ mới
+    const people = [...chars.values()].filter((c) => !c.leaving).map((c) => ({ user: { ...c.viewer, look: c.look }, lastActive: c.lastActive }));
     chars.clear();
-    viewerChar.clear();
-    if (scene) populate();
+    spots = scene ? (typeof scene.spots === 'function' ? scene.spots(w) : scene.spots) || [] : [];
+    freeSpots = new Set(spots.map((_, i) => i));
+    if (scene) {
+      const seed = people.length ? people.map((p) => p.user) : state.crowd || [];
+      for (const u of seed.slice(0, maxChars())) spawn(u, false);
+    }
     bits = [];
     flyers = [];
     fx.clear();
+    cam.target = null;
+    cam.queue = [];
     stageBusyUntil = 0;
   };
   if (prev === null && sceneId === null && !scene) {
@@ -727,6 +926,11 @@ function drawTransition() {
 }
 
 // ---------------- Vòng lặp ----------------
+const BEAT_HZ = 2; // ~120 BPM
+function groove(c) {
+  return Math.pow(Math.abs(Math.sin((now * BEAT_HZ + c.seed) * Math.PI)), 3);
+}
+
 let last = performance.now();
 function frame(ts) {
   const dt = Math.min(0.05, (ts - last) / 1000);
@@ -735,19 +939,34 @@ function frame(ts) {
   ctx.clearRect(0, 0, W, H);
 
   if (scene && state.location) {
+    updateChars(dt);
+    scene.update?.(w, dt);
+    updateCamera(dt);
+    ctx.save();
+    applyCamera();
     drawMedia();
     scene.background(ctx, w);
     fx.draw('under');
-    updateChars(dt);
-    scene.update?.(w, dt);
     const list = [...chars.values()].sort((a, b) => a.y - b.y);
-    for (const c of list) drawChar(c);
+    for (const c of list) drawChar(c, groove);
     scene.foreground?.(ctx, w);
-  } else drawClosed();
+    const all = list.length <= SHOW_ALL_TAGS_UNDER;
+    for (const c of list) {
+      const show = all || now < c.busyUntil || c.viewer?.tier?.rank >= 2 || c.look?.wings || c === cam.target;
+      if (show || c.bubble || c.emote) drawOverlay(c, show);
+    }
+    fx.update(dt);
+    fx.draw('over');
+    updateDraw(dt);
+    ctx.restore();
+    drawMenu();
+  } else {
+    drawClosed();
+    fx.update(dt);
+    fx.draw('over');
+    updateDraw(dt);
+  }
 
-  fx.update(dt);
-  fx.draw('over');
-  updateDraw(dt);
   drawHud();
   drawBanners();
   drawTransition();
@@ -772,15 +991,12 @@ function connect() {
     else if (msg.type === 'boards') state = { ...state, leaderboard: msg.leaderboard };
     else if (msg.type === 'paused') state.paused = msg.paused;
     else if (msg.type === 'remove') {
-      const c = viewerChar.get(String(msg.userId));
-      if (c) {
-        c.bubble = null;
-        release(c);
-      }
+      const c = chars.get(String(msg.userId));
+      if (c) removeChar(c);
     }
   };
 }
 connect();
 
 // Cho phép thử nhanh trên trình duyệt: window.world
-window.world = { w, handle, get state() { return state; }, get media() { return media; } };
+window.world = { w, handle, cam, get state() { return state; }, get media() { return media; } };

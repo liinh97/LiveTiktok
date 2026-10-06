@@ -3,8 +3,11 @@
 //
 // Hành động gửi xuống:
 // { id, action, priority, location, say, test, ts,
-//   user: { id, name, avatar, tier: {id,name,color,rank}, totalCoins, isNew } | null,
-//   data: { text?, likes?, gift?: {name,count,coins,total,image}, from?, to?, count?, params? } }
+//   user: { id, name, avatar, tier: {id,name,color,rank}, totalCoins, isNew, look: {style, scale, wings} } | null,
+//   data: { text?, likes?, gift?: {name,count,coins,total,image}, from?, to?, count?, params?, cmd?: {label, icon} } }
+//
+// Ngoại hình (look) của nhân vật mỗi người xem: style (kiểu nhân vật, giữ mãi), scale + wings (to/nhỏ, có cánh:
+// giữ trong ngày). Máy chủ cũng nhớ ai đang ở trong quán (presence) để trang hiển thị tải lại không mất đám đông.
 
 import { EventEmitter } from 'node:events';
 import { fillTemplate, localTime, LruSet } from '../util.js';
@@ -32,6 +35,8 @@ export class Pipeline extends EventEmitter {
     this.lastEventAt = 0;
     this.seq = 0;
     this.counts = { events: 0, actions: 0, dropped: 0 };
+    this.present = new Map(); // id người xem -> { user, lastSeen }
+    this.testLooks = new Map(); // ngoại hình của người thử (không lưu DB)
   }
 
   start() {
@@ -69,7 +74,14 @@ export class Pipeline extends EventEmitter {
     let giftInfo = null;
     if (ev.type === 'gift') giftInfo = this.recordGift(ev, player, location, day, now);
 
-    if (blocked || this.paused) return this.drop();
+    if (blocked) {
+      this.present.delete(ev.user.id);
+      return this.drop();
+    }
+
+    // Ngoại hình nhân vật (lệnh "to lên", "đổi nhân vật"... là tiền thật nên áp dụng cả khi tạm dừng)
+    let look = this.lookOf(ev, player, day);
+    if (giftInfo?.rule?.look) look = this.changeLook(ev, look, giftInfo.rule.look, day);
 
     const total = giftInfo ? giftInfo.newTotal : player.total_coins;
     const user = {
@@ -79,7 +91,10 @@ export class Pipeline extends EventEmitter {
       tier: this.tiers.public(this.tiers.of(total)),
       totalCoins: total,
       isNew,
+      look,
     };
+    this.present.set(user.id, { user, lastSeen: now });
+    if (this.paused) return this.drop();
     const ctx = { ev, user, location, day, now };
     const rules = this.rules.forLocation(location);
     const out = [];
@@ -160,7 +175,7 @@ export class Pipeline extends EventEmitter {
       });
     }
 
-    const rule = this.rules.pickGift(location, total);
+    const rule = this.rules.pickGiftRule(location, g);
 
     const big = this.config.alerts?.bigGiftCoins;
     if (big && total >= big && !ev.test) {
@@ -196,11 +211,47 @@ export class Pipeline extends EventEmitter {
       priority: rule.priority ?? 0,
       location,
       user,
-      data: rule.params ? { ...data, params: rule.params } : data,
+      data: { ...data, ...(rule.params ? { params: rule.params } : {}), ...(rule.label ? { cmd: { label: rule.label, icon: rule.icon || '' } } : {}) },
       say: sayAllowed ? fillTemplate(rule.say, vars) : '',
       test: ev.test,
       ts: now,
     };
+  }
+
+  /** Ngoại hình hiện tại: kiểu nhân vật giữ mãi, to/nhỏ và cánh chỉ giữ trong ngày. */
+  lookOf(ev, player, day) {
+    let saved = ev.test ? this.testLooks.get(ev.user.id) : null;
+    if (!saved && player?.look) {
+      try {
+        saved = JSON.parse(player.look);
+      } catch {
+        saved = null;
+      }
+    }
+    const look = { style: saved?.style ?? hashId(ev.user.id), scale: 1, wings: false, day };
+    if (saved?.day === day) {
+      look.scale = saved.scale ?? 1;
+      look.wings = Boolean(saved.wings);
+    }
+    return look;
+  }
+
+  changeLook(ev, look, kind, day) {
+    const next = { ...look, day };
+    if (kind === 'grow') next.scale = Math.min(2.2, Math.round((look.scale + 0.3) * 100) / 100);
+    if (kind === 'shrink') next.scale = Math.max(0.5, Math.round((look.scale - 0.25) * 100) / 100);
+    if (kind === 'wings') next.wings = true;
+    if (kind === 'change') next.style = (look.style + 1 + Math.floor(Math.random() * 997)) % 1_000_000;
+    if (ev.test) this.testLooks.set(ev.user.id, next);
+    else this.store.setLook(ev.user.id, next);
+    return next;
+  }
+
+  /** Những người đang trong quán (tương tác gần đây), mới nhất trước. */
+  presentList(limit = 300, now = Date.now()) {
+    const maxAge = (this.cfg.presenceMinutes || 15) * 60_000;
+    for (const [id, p] of this.present) if (now - p.lastSeen > maxAge) this.present.delete(id);
+    return [...this.present.values()].sort((a, b) => b.lastSeen - a.lastSeen).slice(0, limit).map((p) => p.user);
   }
 
   allowJoin(now) {
@@ -252,4 +303,11 @@ export class Pipeline extends EventEmitter {
     this.counts.dropped++;
     return [];
   }
+}
+
+/** Số cố định từ id người xem (để mỗi người có sẵn một kiểu nhân vật riêng). */
+function hashId(id) {
+  let h = 2166136261;
+  for (const ch of String(id)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return (h >>> 0) % 1_000_000;
 }

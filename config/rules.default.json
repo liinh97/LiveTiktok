@@ -6,6 +6,8 @@
   "follow": { "action": "follow", "priority": 1, "say": "Cảm ơn {name} đã theo dõi!" },
   "share": { "action": "share", "priority": 1, "say": "Cảm ơn {name} đã chia sẻ!" },
 
+  "commands": [],
+
   "chat": [
     { "action": "chat" }
   ],

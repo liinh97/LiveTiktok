@@ -35,6 +35,7 @@ async function call(path, body) {
 
 let paused = false;
 let locOptionsKey = '';
+let cmdOptionsKey = '';
 
 function render(s) {
   $('login').style.display = 'none';
@@ -53,6 +54,16 @@ function render(s) {
       '<option value="">📅 Theo lịch</option>' + s.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.emoji)} ${esc(l.name)}</option>`).join('');
   }
   if (document.activeElement !== $('locSelect')) $('locSelect').value = s.overridden && s.location ? s.location.id : '';
+
+  const cmdKey = JSON.stringify(s.commands || []);
+  if (cmdKey !== cmdOptionsKey) {
+    cmdOptionsKey = cmdKey;
+    $('cmdBtns').innerHTML = (s.commands || []).length
+      ? s.commands
+          .map((c) => `<button data-sim='${esc(JSON.stringify({ type: 'gift', giftName: c.gift, coins: 1 }))}'>${esc(c.icon)} ${esc(c.label)}</button>`)
+          .join('')
+      : '<span class="muted">Không có</span>';
+  }
 
   paused = s.paused;
   $('pauseBtn').textContent = paused ? '▶ Bật hiệu ứng' : '⏸ Tạm dừng';
@@ -104,6 +115,18 @@ async function refresh() {
   }
 }
 
+// Thử quán đông: thả nhiều người thử vào cùng lúc
+const HO = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Vũ', 'Đặng', 'Bùi'];
+const TEN = ['An', 'Bình', 'Chi', 'Dũng', 'Giang', 'Hà', 'Khoa', 'Linh', 'Mai', 'Nam', 'Phúc', 'Quân', 'Trang', 'Vy'];
+async function bulkJoin(n) {
+  for (let i = 0; i < n; i++) {
+    const id = `thu-${Date.now()}-${i}`;
+    const name = `${HO[Math.floor(Math.random() * HO.length)]} ${TEN[Math.floor(Math.random() * TEN.length)]}`;
+    call('simulate', { type: 'join', userId: id, name }).catch(() => {});
+    if (i % 8 === 7) await new Promise((r) => setTimeout(r, 1000)); // tránh vượt giới hạn người vào mỗi giây
+  }
+}
+
 async function act(path, body) {
   try {
     await call(path, body);
@@ -116,7 +139,8 @@ async function act(path, body) {
 document.addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
-  if (b.dataset.sim) act('simulate', JSON.parse(b.dataset.sim));
+  if (b.dataset.sim) act('simulate', { userId: 'test-user', ...JSON.parse(b.dataset.sim) });
+  else if (b.dataset.bulk) bulkJoin(Number(b.dataset.bulk));
   else if (b.dataset.block && confirm(`Chặn ${b.dataset.name}? Người này sẽ không hiện trên live nữa.`)) act('block', { userId: b.dataset.block, name: b.dataset.name });
   else if (b.dataset.unblock) act('unblock', { userId: b.dataset.unblock });
   else if (b.dataset.dismiss) act('dismiss-alert', { key: b.dataset.dismiss });

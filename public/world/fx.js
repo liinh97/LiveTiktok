@@ -52,6 +52,37 @@ export function createFx({ ctx, W, H, clock }) {
       }
     },
 
+    /** Pháo hoa: quả pháo bay lên từ (x, y) rồi nổ bung nhiều màu ở độ cao top. */
+    firework(x, y, { top = 520, colors = [[255, 90, 90], [255, 220, 90], [120, 220, 255], [200, 120, 255], [120, 255, 160]] } = {}) {
+      const tx = x + rand(-120, 120);
+      const ty = top + rand(-80, 80);
+      const dur = 0.8;
+      const born = now();
+      const col = colors[Math.floor(Math.random() * colors.length)];
+      emitters.push({
+        until: born + dur,
+        tick() {
+          const p = (now() - born) / dur;
+          const e = 1 - Math.pow(1 - p, 2);
+          const px = x + (tx - x) * e;
+          const py = y + (ty - y) * e;
+          add({ k: 'spark', x: px, y: py, vx: rand(-30, 30), vy: rand(40, 120), g: 200, life: 0, max: 0.4, c: [255, 230, 180], s: 2.5 });
+        },
+      });
+      setTimeout(() => {
+        for (let i = 0; i < 70; i++) {
+          const a = (i / 70) * Math.PI * 2;
+          const v = rand(220, 380);
+          const c = Math.random() < 0.7 ? col : [255, 255, 255];
+          add({ k: 'spark', x: tx, y: ty, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 260, drag: 1.2, life: 0, max: rand(1, 1.6), c, s: rand(2, 3.5) });
+        }
+        timed(400, 'over', (c, p) => {
+          c.globalCompositeOperation = 'lighter';
+          glowAt(c, tx, ty, 160, col, 0.5 * (1 - p));
+        });
+      }, dur * 1000);
+    },
+
     /** Khói CO2: cột khói trắng phun mạnh từ dưới lên. */
     co2Jet(x, y, { ms = 1600, height = 900 } = {}) {
       emitters.push({

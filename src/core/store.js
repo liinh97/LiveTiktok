@@ -50,6 +50,9 @@ export class Store {
     this.db = new DatabaseSync(file);
     this.db.exec('PRAGMA journal_mode = WAL;');
     this.db.exec(SCHEMA);
+    // Nâng cấp dữ liệu cũ: thêm cột ngoại hình nhân vật
+    const cols = this.db.prepare('PRAGMA table_info(players)').all().map((c) => c.name);
+    if (!cols.includes('look')) this.db.exec('ALTER TABLE players ADD COLUMN look TEXT');
     this.q = {
       getPlayer: this.db.prepare('SELECT * FROM players WHERE id = ?'),
       insertPlayer: this.db.prepare(
@@ -57,6 +60,7 @@ export class Store {
       ),
       updatePlayer: this.db.prepare('UPDATE players SET name = ?, avatar = COALESCE(?, avatar), visits = visits + ?, last_seen = ? WHERE id = ?'),
       addCoins: this.db.prepare('UPDATE players SET total_coins = total_coins + ? WHERE id = ?'),
+      setLook: this.db.prepare('UPDATE players SET look = ? WHERE id = ?'),
       insertGift: this.db.prepare(
         'INSERT INTO gifts (player_id, location, session_id, gift_name, count, coins, day, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       ),
@@ -99,6 +103,10 @@ export class Store {
     const newVisit = countVisit && now - existing.last_seen > VISIT_GAP_MS ? 1 : 0;
     this.q.updatePlayer.run(user.name, user.avatar || null, newVisit, now, String(user.id));
     return { player: this.getPlayer(user.id), isNew: false };
+  }
+
+  setLook(id, look) {
+    this.q.setLook.run(JSON.stringify(look), String(id));
   }
 
   /** Ghi quà, cộng xu vào hồ sơ. Trả về tổng xu mới của người đó. */

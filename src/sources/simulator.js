@@ -24,6 +24,8 @@ const CHATS = [
 export const SIM_GIFTS = [
   { name: 'Rose', coins: 1, weight: 40 },
   { name: 'TikTok', coins: 1, weight: 15 },
+  { name: 'Ice Cream Cone', coins: 1, weight: 8 },
+  { name: 'GG', coins: 1, weight: 8 },
   { name: 'Finger Heart', coins: 5, weight: 15 },
   { name: 'Perfume', coins: 20, weight: 8 },
   { name: 'Doughnut', coins: 30, weight: 10 },

@@ -66,15 +66,15 @@ npm test         # chạy kiểm thử
 | Nguồn giả lập | `src/sources/simulator.js` | Sinh sự kiện ngẫu nhiên để thử |
 | Quản lý nguồn | `src/sources/manager.js` | Tự kết nối lại (chờ tăng dần). Lỗi liên tục thì chuyển sang nguồn dự phòng. Kênh chưa live thì chờ rồi thử lại. |
 | Lõi xử lý | `src/core/pipeline.js` | Lọc trùng, lọc nội dung, giới hạn tần suất thả tim, gộp lượt vào khi đông, ghi quà, tra luật, phát hành động |
-| Luật | `src/core/rules.js`, `config/rules.default.json` | Sự kiện nào ra hành động nào. Quà chia bậc theo tổng xu. Mỗi địa điểm ghi đè được. |
-| Dữ liệu chung | `src/core/store.js` | Hồ sơ người xem, tổng xu và cấp **dùng chung cho mọi địa điểm**; quà, ca live, danh sách chặn |
+| Luật | `src/core/rules.js`, `config/rules.default.json` | Sự kiện nào ra hành động nào. Quà theo **loại** (lệnh) hoặc theo **bậc xu**. Mỗi địa điểm ghi đè được. |
+| Dữ liệu chung | `src/core/store.js` | Hồ sơ người xem, tổng xu, cấp và **ngoại hình nhân vật**, dùng chung cho mọi địa điểm; quà, ca live, danh sách chặn |
 | Cấp người xem | `src/core/tiers.js`, `config/config.json` → `tiers` | Cấp theo tổng xu đã tặng |
 | Lập lịch | `src/core/scheduler.js`, `config/schedule.json` | Khung giờ nào mở địa điểm nào. Ghi đè tay được. |
 | Lọc nội dung | `src/core/filter.js`, `config/banned-words.txt` | Tên hoặc bình luận có từ cấm, link, số điện thoại quảng cáo. Danh sách chặn. |
 | Canh chừng | `src/core/watchdog.js` | Báo khi mất nguồn trong giờ mở cửa, khi lâu không có sự kiện, khi không có trang hiển thị |
 | Báo động | `src/notify/` | Hiện trên bảng điều khiển + Telegram, có thời gian chờ để không spam |
 | Máy chủ | `src/server/` | Trang hiển thị, bảng điều khiển, API, proxy ảnh đại diện, `/health` |
-| Engine hiển thị | `public/world/engine.js` | Tải cảnh theo địa điểm, chuyển cảnh, xếp hàng hiệu ứng lớn, hiệu ứng cơ bản. Mỗi cảnh có sẵn một đám đông cố định (mặc định 30 nhân vật, chỉnh bằng `maxChars`); ai tương tác thì bốc ngẫu nhiên một nhân vật tạm mang tên người đó để diễn |
+| Engine hiển thị | `public/world/engine.js` | Tải cảnh theo địa điểm, chuyển cảnh, camera, menu lệnh quà, xếp hàng hiệu ứng lớn. Mỗi người xem một nhân vật riêng; quán đầy thì người lâu không tương tác ra về nhường chỗ |
 
 Một số nguyên tắc:
 - **Quà luôn được ghi**, kể cả khi đang tạm dừng hiệu ứng, khi người tặng bị chặn, hoặc ngoài giờ mở cửa.
@@ -83,14 +83,31 @@ Một số nguyên tắc:
 
 ## Bối cảnh có sẵn
 
-- `bar` — Bar / lounge phong cách gần đời thực: phòng tối, quầy bar sáng, đám đông bóng người ngược sáng.
-  Quà nhỏ: ly Mojito bay tới · quà vừa: đèn rọi + nhảy · quà lớn: chai rượu cắm pháo sáng + pháo sáng lạnh hai bên ·
-  quà khủng: laser, khói CO2, pháo sáng, mưa kim tuyến, cả quán nâng ly. Lệnh `!nhac <tên bài>` cho Khách quen trở lên.
+- `bar` — Bar online: giàn đèn tròn với đèn moving head, quả cầu gương, kệ rượu, biển neon.
+  **Mỗi người xem có một nhân vật chibi riêng** (mặt là ảnh đại diện TikTok nếu có), vào phòng là xuất hiện,
+  quán chứa tối đa 250 người (ghi đè bằng `?max=` trên URL trang hiển thị).
+  **Menu lệnh quà** hiện trên màn hình (sửa trong `locations/bar/location.json` → `commands`):
+
+  | Quà | Lệnh |
+  |---|---|
+  | Rose | Nhảy 1 cái (nhảy lộn một vòng) |
+  | TikTok | Đi vòng quanh quán |
+  | Ice Cream Cone | Nhỏ lại |
+  | GG | Pháo hoa bắn từ nhân vật |
+  | Finger Heart | To lên |
+  | Perfume | Camera zoom vào nhân vật |
+  | Doughnut | Đổi nhân vật |
+  | Hand Hearts | Huy hiệu + cánh |
+
+  Quà khác tính theo bậc xu: ly Mojito → đèn rọi + nhảy → chai rượu cắm pháo sáng → laser, khói CO2, mưa kim tuyến.
+  To/nhỏ và cánh giữ trong ngày; kiểu nhân vật (sau khi đổi) giữ mãi. Lệnh `!nhac <tên bài>` cho Khách quen trở lên.
+  Tên/giá quà TikTok có thể khác theo khu vực: xem tên quà thật trên bảng điều khiển rồi sửa `commands` cho khớp.
   Muốn nền thật: xem `locations/bar/assets/README.md`.
 - `demo` — cảnh tối giản để kiểm tra.
 
 Hiệu ứng sân khấu dùng chung cho mọi bối cảnh nằm ở `public/world/fx.js` (gọi qua `w.fx`): `sparkFountain`, `sparkBurst`,
-`co2Jet`, `confettiRain`, `laserFan`, `strobe`, `flash`, `wash`, `beam`, `halo`, `custom`.
+`firework`, `co2Jet`, `confettiRain`, `laserFan`, `strobe`, `flash`, `wash`, `beam`, `halo`, `custom`.
+Nhân vật chibi tự sinh ở `public/world/chibi.js`.
 
 ## Thêm một địa điểm (loại hình live) mới
 

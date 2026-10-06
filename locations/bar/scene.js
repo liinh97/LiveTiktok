@@ -3,24 +3,30 @@
 // không có thì tự vẽ nền lounge.
 
 const COUNTER_Y = 960; // mép trên quầy bar
-const FAR_Y = 1060; // hàng người xa nhất
-const NEAR_Y = 1560; // hàng người gần nhất
+const FAR_Y = 1050; // hàng người xa nhất
+const NEAR_Y = 1720; // hàng người gần nhất
+const scaleAt = (y) => 0.5 + ((y - FAR_Y) / (NEAR_Y - FAR_Y)) * 0.55;
 
-// Chỗ đứng cố định: 5 hàng, xa -> gần, so le để không che nhau hoàn toàn
+// Chỗ đứng cho đám đông chibi: lưới so le, xa thì dày + nhỏ, gần thì thưa + to (~320 chỗ)
 const SPOTS = [];
-[
-  [FAR_Y, 7],
-  [1170, 6],
-  [1290, 6],
-  [1420, 5],
-  [NEAR_Y, 4],
-].forEach(([y, n], row) => {
-  const margin = 110 - row * 8;
-  for (let i = 0; i < n; i++) {
-    const x = margin + ((1080 - margin * 2) * (i + (row % 2 ? 0.5 : 0.25))) / (n - (row % 2 ? 0 : 0.5));
-    SPOTS.push({ x: Math.min(1020, x + (Math.random() - 0.5) * 40), y: y + (Math.random() - 0.5) * 24 });
+for (let y = FAR_Y, row = 0; y <= NEAR_Y; row++) {
+  const s = scaleAt(y);
+  const gap = 58 * s;
+  for (let x = 40 + (row % 2) * gap * 0.5; x <= 1040; x += gap) {
+    SPOTS.push({ x: x + (Math.random() - 0.5) * gap * 0.4, y: y + (Math.random() - 0.5) * 8 });
   }
-});
+  y += 34 * s;
+}
+
+// Đường đi vòng quanh quán (lệnh "Đi vòng")
+const WALK = [
+  { x: 70, y: 1700 },
+  { x: 70, y: 1080 },
+  { x: 540, y: 1040 },
+  { x: 1010, y: 1080 },
+  { x: 1010, y: 1700 },
+  { x: 540, y: 1740 },
+];
 
 // Đốm sáng mờ (bokeh) của đèn phía sau, tạo một lần
 const BOKEH = Array.from({ length: 34 }, () => ({
@@ -249,149 +255,27 @@ function drawMirrorDots(ctx, w) {
   ctx.globalCompositeOperation = 'source-over';
 }
 
-// ---------------- Chuyển động của đám đông ----------------
-const BPM = 120;
-const beatPhase = (t) => (t * BPM) / 60; // số nhịp đã trôi
-const pulse = (t, off = 0) => Math.pow(Math.max(0, Math.cos((beatPhase(t) + off) * Math.PI * 2)), 4); // 1 đúng nhịp
-
-// Cử chỉ ngẫu nhiên khi rảnh: [tên, trọng số, thời lượng giây]
-const GESTURES = [
-  ['sip', 30, [2.5, 4]],
-  ['lean', 25, [3, 6]],
-  ['fist', 14, [2, 3.5]],
-  ['wave', 8, [1.8, 3]],
-  ['shuffle', 13, [2, 3]],
-  ['handsUp', 10, [2, 3.5]],
-];
-const GESTURE_SUM = GESTURES.reduce((a, g) => a + g[1], 0);
-function randomGesture() {
-  let r = Math.random() * GESTURE_SUM;
-  for (const g of GESTURES) if ((r -= g[1]) <= 0) return g;
-  return GESTURES[0];
-}
-
-let nextDrop = 25 + Math.random() * 15; // "drop nhạc": cả quán giơ tay thành làn sóng
+// "Drop nhạc": khoảng 35-55 giây một lần cả quán giơ tay thành làn sóng trái sang phải
+let nextDrop = 25 + Math.random() * 15;
 let lastT = 0;
 
-/** Trạng thái chuyển động hiện tại của một người: lắc lư, nhún, đầu, tay. */
-function motion(c, t) {
-  c.style ??= Math.floor(Math.random() * 4); // 0 lắc lư · 1 nhún · 2 gật gù · 3 nhẹ nhàng
-  c.energy ??= 0.5 + Math.random() * 0.7;
-  c.ph ??= Math.random();
-  const e = c.energy;
-  const p = pulse(t, c.ph * 0.3);
-  const m = { sway: 0, dy: 0, hdx: 0, hdy: 0, left: null, right: null, glass: false };
-
-  if (c.style === 0) m.sway = Math.sin((beatPhase(t) / 2 + c.ph) * Math.PI * 2) * 0.05 * e;
-  else if (c.style === 1) m.dy = p * 7 * e;
-  else if (c.style === 2) m.hdy = p * 4 * e;
-  else m.sway = Math.sin(t * 0.8 + c.ph * 6) * 0.015;
-
-  // Tư thế do hành động đặt (quà, mời cả quán) được ưu tiên
-  let g = c.pose ? { type: c.pose === 'cheer' ? 'handsUp' : c.pose, start: 0 } : c.gesture && t < c.gesture.until && t >= c.gesture.start ? c.gesture : null;
-  const holding = c.item && t < c.item.until;
-  const k = g ? Math.min(1, (t - (g.start || 0)) * 4, g.until ? (g.until - t) * 4 : 1) : 0; // vào/ra mượt
-  const up = (side, amp = 1) => {
-    const sx = side * 34;
-    const sw = Math.sin((beatPhase(t) + c.ph) * Math.PI) * 10 * amp;
-    return [[sx + side * 10, -142 - 50 * k], [sx + side * 16 + sw * side, -142 - 112 * k]];
-  };
-  switch (g?.type) {
-    case 'handsUp':
-      m.left = up(-1);
-      m.right = up(1);
-      m.dy += p * 5;
-      break;
-    case 'dance':
-      m.dy += p * 9;
-      m.sway += Math.sin(beatPhase(t) * Math.PI) * 0.07;
-      if (Math.floor(beatPhase(t)) % 2) m.left = up(-1, 0.6);
-      else m.right = up(1, 0.6);
-      break;
-    case 'fist': {
-      const pump = p * 22;
-      m.right = [[44, -150 - 40 * k], [40, -150 - (85 + pump) * k]];
-      break;
-    }
-    case 'wave': {
-      const osc = Math.sin(t * 9) * 16;
-      m.right = [[44, -150 - 40 * k], [50 + osc * k, -150 - 98 * k]];
-      break;
-    }
-    case 'sip': {
-      // nâng ly lên miệng rồi hạ xuống
-      const lift = Math.sin(Math.min(1, (t - g.start) / (g.until - g.start)) * Math.PI);
-      m.right = [[42, -100 - 10 * lift], [26 - 12 * lift, -112 - 58 * lift]];
-      m.hdy -= lift * 3;
-      m.glass = true;
-      break;
-    }
-    case 'lean':
-      m.sway += (c.leanDir || 1) * 0.06 * k;
-      m.hdx = (c.leanDir || 1) * 6 * k;
-      break;
-  }
-  if (!m.right && holding) {
-    m.right = [[46, -95], [30, -115]];
-    m.glass = !c.item.e; // có emoji thì engine tự vẽ đồ cầm
-  }
-  return m;
-}
-
-function drawArm(ctx, x, y, s, side, arm) {
-  ctx.moveTo(x + side * 34 * s, y - 142 * s);
-  ctx.lineTo(x + arm[0][0] * s, y + arm[0][1] * s);
-  ctx.lineTo(x + arm[1][0] * s, y + arm[1][1] * s);
-}
-
-/** Ly cocktail dạng bóng tối ở tay phải. */
-function drawGlass(ctx, x, y, s, arm) {
-  const gx = x + arm[1][0] * s;
-  const gy = y + arm[1][1] * s - 6 * s;
-  ctx.beginPath();
-  ctx.moveTo(gx - 10 * s, gy - 14 * s);
-  ctx.lineTo(gx + 10 * s, gy - 14 * s);
-  ctx.lineTo(gx, gy - 2 * s);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillRect(gx - 1 * s, gy - 2 * s, 2 * s, 9 * s);
-}
-
 export default {
-  maxChars: 24,
-  charHeight: 212,
-  stageFloorY: 1620,
+  maxChars: 250,
+  stageFloorY: 1640,
   spots: SPOTS,
+  entrance: { x: 1140, y: 1500 },
+  walkPath: WALK,
   source: { x: 540, y: COUNTER_Y - 30 },
-  scaleAt: (y) => 0.62 + ((y - FAR_Y) / (NEAR_Y - FAR_Y)) * 0.58,
-  wander: () => null,
+  scaleAt,
 
-  /** Engine gọi mỗi khung hình: cho đám đông tự cử động khi không ai tương tác. */
-  update(w, dt) {
+  /** Engine gọi mỗi khung hình: thỉnh thoảng "drop nhạc", cả quán giơ tay lan từ trái sang phải. */
+  update(w) {
     const t = w.t;
-    if (t < lastT) nextDrop = t + 25 + Math.random() * 15; // vừa vào cảnh lại
+    if (t < lastT) nextDrop = t + 25 + Math.random() * 15;
     lastT = t;
-    for (const c of w.chars) {
-      if (c.gesture && t > c.gesture.until) {
-        if (c.gesture.type === 'shuffle') w.goHome(c);
-        c.gesture = null;
-      }
-      if (c.gesture || c.pose || c.viewer) continue;
-      if (Math.random() < dt * 0.07) {
-        const [type, , [a, b]] = randomGesture();
-        c.gesture = { type, start: t, until: t + a + Math.random() * (b - a) };
-        if (type === 'lean') c.leanDir = Math.random() < 0.5 ? -1 : 1;
-        if (type === 'shuffle') w.moveTo(c, c.home.x + (Math.random() - 0.5) * 50, c.home.y + (Math.random() - 0.5) * 16);
-      }
-    }
-    // Drop nhạc: giơ tay lan từ trái sang phải, đèn loé theo
     if (t > nextDrop) {
       nextDrop = t + 35 + Math.random() * 20;
-      for (const c of w.chars) {
-        if (c.pose) continue;
-        const start = t + (c.x / w.W) * 1.2;
-        c.gesture = { type: 'handsUp', start, until: start + 3.5 + Math.random() };
-      }
+      for (const c of w.chars) setTimeout(() => w.pose(c, 'cheer', 3500), (c.x / w.W) * 1200);
       w.fx.flash({ alpha: 0.18, ms: 400 });
       w.fx.wash({ color: MAGENTA, ms: 4000, alpha: 0.14 });
     }
@@ -513,50 +397,22 @@ export default {
     ctx.globalCompositeOperation = 'source-over';
   },
 
-  /** Bóng người ngược sáng; đang diễn cho người xem thì viền sáng theo màu cấp VIP. */
-  drawBody(ctx, w, c, { x, y, s, lit }) {
-    if (lit) {
-      ctx.globalCompositeOperation = 'lighter';
-      glow(ctx, x, y - 120 * s, 130 * s, w.rgb(lit), 0.35);
-      ctx.globalCompositeOperation = 'source-over';
-    }
-    const m = motion(c, w.t);
-    const fy = y - m.dy * s;
-    const rim = lit ? w.rgb(lit) : c.seed > 0.5 ? [255, 170, 110] : [230, 120, 220];
-    const extra = () => {
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.lineWidth = 14 * s;
-      ctx.beginPath();
-      if (m.left) drawArm(ctx, x, fy, s, -1, m.left);
-      if (m.right) drawArm(ctx, x, fy, s, 1, m.right);
-      ctx.stroke();
-      if (m.glass && m.right) drawGlass(ctx, x, fy, s, m.right);
-    };
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(m.sway);
-    ctx.translate(-x, -y);
-    drawSilhouette(ctx, x, fy, s, c.seed, rim, lit ? 0.95 : 0.22, extra, m.hdx, m.hdy);
-    ctx.restore();
-  },
-
   // Mép bàn phía trước + ánh nến: tạo chiều sâu
   foreground(ctx, w) {
     const { W, H } = w;
     drawMirrorDots(ctx, w); // đốm sáng từ quả cầu gương rơi lên cả người đứng
-    const g = ctx.createLinearGradient(0, 1700, 0, H);
+    const g = ctx.createLinearGradient(0, 1760, 0, H);
     g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(0.4, 'rgba(0,0,0,0.85)');
+    g.addColorStop(0.5, 'rgba(0,0,0,0.8)');
     g.addColorStop(1, 'rgba(0,0,0,1)');
     ctx.fillStyle = g;
-    ctx.fillRect(0, 1700, W, H - 1700);
+    ctx.fillRect(0, 1760, W, H - 1760);
     ctx.globalCompositeOperation = 'lighter';
     for (const [x, ph] of [
       [170, 0],
       [880, 2],
     ]) {
-      glow(ctx, x, 1800, 70 + Math.sin(w.t * 9 + ph) * 4, AMBER, 0.35);
+      glow(ctx, x, 1850, 70 + Math.sin(w.t * 9 + ph) * 4, AMBER, 0.35);
     }
     ctx.globalCompositeOperation = 'source-over';
   },
