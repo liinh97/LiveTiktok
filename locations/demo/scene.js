@@ -2,7 +2,7 @@
 // Làm địa điểm mới: sao chép thư mục này, đổi nền và (tuỳ chọn) thêm actions riêng.
 
 export default {
-  maxChars: 30,
+  maxChars: 22,
   source: { x: 540, y: 900 },
 
   spot: (w) => ({ x: w.rand(100, w.W - 100), y: w.rand(1050, 1700) }),

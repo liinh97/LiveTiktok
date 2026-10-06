@@ -19,6 +19,8 @@ const MIME = {
   '.mp3': 'audio/mpeg',
   '.ogg': 'audio/ogg',
   '.wav': 'audio/wav',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
 };
 
 const PUBLIC = path.join(ROOT, 'public');
@@ -37,9 +39,9 @@ export function createHttpServer({ config, api }) {
       if (p === '/world' || p === '/dashboard') return redirect(res, `${p}/${url.search}`);
       if (p === '/avatar') return avatars.serve(url.searchParams.get('u'), res);
       if (p.startsWith('/api/')) return handleApi(req, res, url, p.slice(5), config, api);
-      if (p.startsWith('/locations/')) return serveFile(res, LOCATIONS, p.slice('/locations/'.length));
+      if (p.startsWith('/locations/')) return serveFile(res, LOCATIONS, p.slice('/locations/'.length), req);
       if (p.startsWith('/world/') || p.startsWith('/dashboard/')) {
-        return serveFile(res, PUBLIC, p.endsWith('/') ? `${p}index.html` : p);
+        return serveFile(res, PUBLIC, p.endsWith('/') ? `${p}index.html` : p, req);
       }
       return send(res, 404, 'Không tìm thấy');
     } catch (err) {
@@ -80,15 +82,31 @@ async function handleApi(req, res, url, route, config, api) {
   }
 }
 
-function serveFile(res, base, rel) {
+function serveFile(res, base, rel, req) {
   const file = path.resolve(base, `.${path.sep}${rel}`);
   if (!file.startsWith(base + path.sep)) return send(res, 403, 'Không được phép');
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) return send(res, 404, 'Không tìm thấy');
-    res.writeHead(200, {
+    const headers = {
       'content-type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
       'cache-control': 'no-cache',
-    });
+      'accept-ranges': 'bytes',
+    };
+    // Gửi từng đoạn (Range): trình duyệt cần để phát video, nhất là Safari trên iPhone
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req?.headers.range || '');
+    if (m && (m[1] || m[2])) {
+      let start = m[1] ? Number(m[1]) : st.size - Number(m[2]);
+      let end = m[1] && m[2] ? Number(m[2]) : st.size - 1;
+      start = Math.max(0, start);
+      end = Math.min(end, st.size - 1);
+      if (start > end) {
+        res.writeHead(416, { 'content-range': `bytes */${st.size}` });
+        return res.end();
+      }
+      res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${st.size}`, 'content-length': end - start + 1 });
+      return fs.createReadStream(file, { start, end }).pipe(res);
+    }
+    res.writeHead(200, { ...headers, 'content-length': st.size });
     fs.createReadStream(file).pipe(res);
   });
 }

@@ -1,7 +1,7 @@
 // Khởi động "thế giới chung": nối nguồn sự kiện -> lõi xử lý -> trang hiển thị + bảng điều khiển.
 
 import path from 'node:path';
-import { loadConfig, loadLocations, ROOT } from './config.js';
+import { findMedia, loadConfig, loadLocations, ROOT } from './config.js';
 import { ContentFilter } from './core/filter.js';
 import { Pipeline } from './core/pipeline.js';
 import { RuleBook } from './core/rules.js';
@@ -66,7 +66,7 @@ function worldState() {
   const cur = scheduler.current();
   return {
     worldName: config.worldName,
-    location: locPublic(cur.location),
+    location: cur.location ? { ...locPublic(cur.location), media: findMedia(cur.location) } : null,
     next: cur.next ? { ...locPublic(cur.next.location), start: cur.next.start } : null,
     schedule: scheduler.publicSlots(locations),
     tiers: config.tiers,

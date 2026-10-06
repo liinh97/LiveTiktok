@@ -1,22 +1,28 @@
-// ENGINE của thế giới chung: nhân vật, hiệu ứng, bảng xếp hạng, lịch, chuyển cảnh.
-// Mỗi địa điểm (locations/<id>/scene.js) chỉ cần vẽ nền và (tuỳ chọn) diễn lại các hành động theo cách riêng.
+// ENGINE của thế giới chung: nền, đám đông, hiệu ứng, chuyển cảnh, hàng chờ quà lớn.
 //
-// NHÂN VẬT: mỗi cảnh có sẵn một đám đông cố định (mặc định 30 nhân vật), KHÔNG gắn với người xem nào.
+// NHÂN VẬT: mỗi cảnh có sẵn một đám đông cố định, KHÔNG gắn với người xem nào.
 // Khi có người tương tác, engine bốc ngẫu nhiên một nhân vật đang rảnh để diễn hiệu ứng; trong lúc diễn,
-// nhân vật đó tạm mang tên + ảnh của người xem, diễn xong lại thành nhân vật vô danh.
+// trên đầu nhân vật hiện thẻ (ảnh đại diện + tên) của người xem, diễn xong lại thành nhân vật vô danh.
 // (Hồ sơ, xu, cấp VIP của từng người xem vẫn được máy chủ lưu đầy đủ.)
 //
-// Hợp đồng của một scene:
+// Hợp đồng của một scene (locations/<id>/scene.js):
 //   export default {
-//     background(ctx, w)          vẽ nền mỗi khung hình (bắt buộc)
-//     foreground?(ctx, w)         vẽ đè lên nhân vật
-//     source:   {x, y} | (w, c)=>{x, y}   nơi đồ/quà bay ra (quầy bar, bếp, phao câu...)
-//     spot(w, c) -> {x, y}        chỗ đứng/ngồi ban đầu của từng nhân vật
+//     background(ctx, w)          vẽ nền mỗi khung hình (bắt buộc). w.hasMedia = true nếu đã có video/ảnh nền thật
+//                                 (thả locations/<id>/assets/background.mp4|webm|jpg|png|webp là tự dùng, không cần khai báo)
+//     foreground?(ctx, w)         vẽ đè lên nhân vật (vd. mép quầy bar phía trước)
+//     source: {x,y} | (w,c)=>{x,y} nơi đồ/quà bay ra (quầy bar, bếp...)
+//     spots?: [{x,y}] | (w)=>[]   chỗ đứng cố định của đám đông (mỗi chỗ một người, không chồng nhau)
+//     spot?(w, c) -> {x,y}        hoặc tự chọn chỗ cho từng nhân vật
+//     scaleAt?(y) -> number       to/nhỏ theo độ xa gần (mặc định 1)
+//     charHeight?: number         chiều cao nhân vật (px, chưa nhân tỉ lệ) để đặt thẻ tên trên đầu
+//     drawBody?(ctx, w, c, o)     tự vẽ thân nhân vật; o = { x, y, s (tỉ lệ), lit (màu viền khi đang diễn | null) }
 //     wander?(w, c) -> {x,y}|null đi loanh quanh (null = đứng yên)
-//     drawChar?(ctx, w, c)        vẽ thêm cho từng nhân vật (vd. cần câu)
+//     stageFloorY?: number        độ cao sàn để đặt pháo sáng / khói (mặc định 1500)
 //     actions?: { tên(w, a, d) }  diễn hành động theo kiểu riêng; d = bộ hành động mặc định
-//     maxChars?: number           số nhân vật trong cảnh (mặc định 30)
+//     maxChars?: number           số nhân vật (mặc định 24)
 //   }
+
+import { createFx } from './fx.js';
 
 const W = 1080;
 const H = 1920;
@@ -24,6 +30,7 @@ const FONT = '"Segoe UI", "Noto Sans", "Helvetica Neue", Arial, sans-serif';
 const EMOJI_FONT = '"Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
 const params = new URLSearchParams(location.search);
 const TTS = params.get('tts') === '1';
+const DEFAULT_CHARS = 24;
 
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
@@ -32,20 +39,20 @@ const ctx = canvas.getContext('2d');
 let state = { worldName: '', location: null, next: null, schedule: [], leaderboard: [], paused: false };
 let scene = null;
 let sceneId = null;
+let media = null; // { el, kind }
 let connected = false;
 const chars = new Map(); // id nhân vật -> nhân vật
 const viewerChar = new Map(); // id người xem -> nhân vật đang diễn cho người đó
-const DEFAULT_CHARS = 30;
-let particles = [];
+let bits = []; // hạt đơn giản: tim, emoji
 let floaters = [];
 let flyers = [];
 let banners = [];
-let effects = [];
-let props = [];
 const stageQueue = [];
 let stageBusyUntil = 0;
-let transition = null; // { born, title, swapped, pending }
+let transition = null;
 let now = 0; // giây
+
+const fx = createFx({ ctx, W, H, clock: () => now });
 
 const images = new Map();
 function img(url) {
@@ -63,11 +70,6 @@ function img(url) {
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const ease = (t) => 1 - Math.pow(1 - clamp(t, 0, 1), 3);
-function hue(id) {
-  let h = 0;
-  for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  return h;
-}
 function emoji(e, x, y, size) {
   ctx.font = `${size}px ${EMOJI_FONT}`;
   ctx.textAlign = 'center';
@@ -106,23 +108,35 @@ function wrap(t, maxW, size) {
     } else line = test;
   }
   if (line) lines.push(line);
-  if (lines.length > 3) {
-    lines.length = 3;
-    lines[2] += '…';
+  if (lines.length > 2) {
+    lines.length = 2;
+    lines[1] += '…';
   }
   return lines;
 }
+/** '#ffca28' -> [255, 202, 40] để dùng với fx */
+function rgb(hex, fallback = [255, 220, 150]) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return fallback;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
 
 // ---------------- API cho scene ----------------
+const scaleOf = (c) => scene?.scaleAt?.(c.y) ?? 1;
+const headTop = (c) => c.y - (scene?.charHeight ?? 136) * scaleOf(c);
+
 const w = {
   W,
   H,
+  fx,
   rand,
   clamp,
   ease,
   emoji,
   text,
   pill,
+  rgb,
   get t() {
     return now;
   },
@@ -132,11 +146,17 @@ const w = {
   get state() {
     return state;
   },
-  getChar: (id) => chars.get(String(id)),
+  get hasMedia() {
+    return mediaReady();
+  },
+  scaleOf,
+  headTop,
+  /** Vị trí ngực nhân vật (để đèn rọi, tia lửa nhắm vào). */
+  chest: (c) => ({ x: c.x, y: c.y - (scene?.charHeight ?? 136) * scaleOf(c) * 0.45 }),
   sourceOf: (c) => srcOf(c),
 
   /**
-   * Nhân vật để diễn hiệu ứng cho người xem trong ms mili giây.
+   * Nhân vật để diễn cho người xem trong ms mili giây.
    * Người đó vừa tương tác (nhân vật còn đang diễn) thì dùng lại nhân vật cũ để các hiệu ứng liền mạch;
    * nếu không thì bốc ngẫu nhiên một nhân vật đang rảnh (hết rảnh thì lấy nhân vật sắp diễn xong nhất).
    */
@@ -159,13 +179,15 @@ const w = {
     c.tx = x;
     c.ty = y;
   },
-  /** Chọn chỗ trống trong danh sách ghế. */
-  freeSeat(seats, c) {
-    const used = new Set([...chars.values()].filter((o) => o !== c && o.seat !== undefined).map((o) => o.seat));
-    const free = seats.map((_, i) => i).filter((i) => !used.has(i));
-    const i = free.length ? free[Math.floor(Math.random() * free.length)] : Math.floor(Math.random() * seats.length);
-    c.seat = i;
-    return { x: seats[i].x + (free.length ? 0 : rand(-25, 25)), y: seats[i].y + (free.length ? 0 : rand(-10, 10)) };
+  /** Về lại chỗ đứng ban đầu. */
+  goHome(c) {
+    c.tx = c.home.x;
+    c.ty = c.home.y;
+  },
+  /** Tư thế tạm thời: 'cheer' (giơ tay), 'dance' (nhún nhảy)... scene tự vẽ theo c.pose. */
+  pose(c, name, ms = 3000) {
+    c.pose = name;
+    c.poseUntil = now + ms / 1000;
   },
   say(c, t, ms = 4000) {
     c.bubble = { text: t, until: now + ms / 1000 };
@@ -173,129 +195,69 @@ const w = {
   emote(c, e, ms = 2500) {
     c.emote = { e, until: now + ms / 1000 };
   },
-  hold(c, e, ms = 9000) {
+  hold(c, e, ms = 4000) {
     c.item = { e, until: now + ms / 1000 };
   },
   /** Đồ bay từ điểm này tới điểm/nhân vật kia theo đường vòng cung. */
   fly(e, from, to, { ms = 900, size = 64, arc = 160, onArrive } = {}) {
     flyers.push({ e, x0: from.x, y0: from.y, to, born: now, dur: ms / 1000, size, arc, onArrive });
   },
-  burst(x, y, { kind = 'confetti', n = 30, e = '✨', spread = 1, speed = 520, size = 34 } = {}) {
+  /** Tim / emoji bay lên. */
+  hearts(x, y, { n = 5, e = null } = {}) {
     for (let i = 0; i < n; i++) {
-      const a = kind === 'hearts' ? rand(-Math.PI * 0.85, -Math.PI * 0.15) : rand(0, Math.PI * 2);
-      const v = rand(0.35, 1) * speed * spread;
-      particles.push({
-        kind,
-        x,
-        y,
-        vx: Math.cos(a) * v,
-        vy: Math.sin(a) * v - (kind === 'confetti' ? 250 : 0),
-        g: kind === 'hearts' ? -60 : kind === 'sparkle' ? 0 : 900,
-        life: 0,
-        max: rand(1, 2),
-        color: `hsl(${rand(0, 360)},90%,60%)`,
-        e: kind === 'hearts' ? ['❤️', '💖', '💕'][i % 3] : e,
-        size: kind === 'emoji' || kind === 'hearts' ? rand(size * 0.7, size * 1.2) : rand(8, 16),
-        rot: rand(0, 6),
-        vr: rand(-8, 8),
-      });
+      bits.push({ x, y, vx: rand(-60, 60), vy: rand(-260, -160), life: 0, max: rand(1, 1.6), e: e || ['❤️', '💖', '💕'][i % 3], size: rand(24, 36) });
     }
   },
-  float(x, y, t, color = '#fff', size = 34) {
+  float(x, y, t, color = '#fff', size = 30) {
     floaters.push({ x, y, t, color, size, born: now, dur: 1.8 });
   },
   banner(t, { sub = '', color = '#ffca28', ms = 3500, big = false } = {}) {
     banners.push({ t, sub, color, big, born: now, dur: ms / 1000 });
-    if (banners.length > 4) banners.shift();
-  },
-  /** Hiệu ứng tuỳ biến trong ms mili giây: draw(ctx, tiến độ 0..1). */
-  effect(ms, draw, layer = 'over') {
-    effects.push({ born: now, dur: ms / 1000, draw, layer });
-  },
-  prop(e, x, y, { ms = 12000, size = 56 } = {}) {
-    props.push({ e, x, y, size, born: now, dur: ms / 1000 });
-    if (props.length > 60) props.shift();
-  },
-  spotlight(c, ms = 4000) {
-    w.effect(ms, (cx, p) => {
-      const a = Math.sin(Math.PI * p) * 0.55;
-      const g = cx.createRadialGradient(c.x, c.y - 40, 20, c.x, c.y - 40, 260);
-      g.addColorStop(0, `rgba(255,250,220,${a})`);
-      g.addColorStop(1, 'rgba(255,250,220,0)');
-      cx.fillStyle = g;
-      cx.beginPath();
-      cx.moveTo(c.x - 40, 0);
-      cx.lineTo(c.x + 40, 0);
-      cx.lineTo(c.x + 230, c.y + 40);
-      cx.lineTo(c.x - 230, c.y + 40);
-      cx.closePath();
-      cx.fill();
-    }, 'under');
-  },
-  fireworks(ms = 5000) {
-    const end = now + ms / 1000;
-    const shoot = () => {
-      if (now > end) return;
-      const x = rand(150, W - 150);
-      const y = rand(380, 900);
-      for (let i = 0; i < 46; i++) {
-        const a = (i / 46) * Math.PI * 2;
-        const v = rand(260, 420);
-        particles.push({ kind: 'spark', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 220, life: 0, max: rand(1.1, 1.6), color: `hsl(${rand(0, 360)},100%,65%)`, size: 7 });
-      }
-      setTimeout(shoot, rand(250, 550));
-    };
-    shoot();
-  },
-  flash(color = '#fff', ms = 400) {
-    w.effect(ms, (cx, p) => {
-      cx.globalAlpha = (1 - p) * 0.5;
-      cx.fillStyle = color;
-      cx.fillRect(0, 0, W, H);
-      cx.globalAlpha = 1;
-    });
+    if (banners.length > 3) banners.shift();
   },
 };
 
-// ---------------- Hành động mặc định ----------------
+// ---------------- Hành động mặc định (dùng thư viện fx) ----------------
 const giftLabel = (a) => {
   const g = a.data?.gift;
   return g ? `${g.count > 1 ? `${g.count}× ` : ''}${g.name}` : '';
 };
-// Biểu tượng đồ/quà: scene có thể đặt qua luật (params.emoji), mặc định là hộp quà
+// Biểu tượng đồ/quà: scene đặt qua luật (params.emoji), mặc định là hộp quà
 const itemOf = (a) => a.data?.params?.emoji || '🎁';
-/** Điểm đồ/quà bay ra: cố định, hoặc tuỳ nhân vật nếu scene.source là hàm. */
+const labelOf = (a) => a.data?.params?.label || giftLabel(a);
 const srcOf = (c) => (typeof scene.source === 'function' ? scene.source(w, c) : scene.source);
+const floorY = () => scene?.stageFloorY ?? 1500;
+const tierRgb = (a) => rgb(a.user?.tier?.color);
 
 const defaults = {
   enter(w, a) {
-    const c = w.charFor(a.user, 3000);
-    if (!c) return;
-    if (a.user.isNew) w.emote(c, '🆕', 3000);
-    w.emote(c, '👋', 2000);
-    if (a.user.tier.rank >= 2) w.banner(`${a.user.tier.name} ${a.user.name} đã đến`, { color: a.user.tier.color, ms: 2600 });
-  },
-  cheer(w, a) {
     const c = w.charFor(a.user, 2500);
     if (!c) return;
-    w.emote(c, '❤️', 1800);
-    w.burst(c.x, c.y - 110, { kind: 'hearts', n: 5, speed: 200 });
+    if (a.user.isNew) w.emote(c, '🆕', 2500);
+    if (a.user.tier.rank >= 2) {
+      w.charFor(a.user, 4000);
+      w.fx.halo(() => ({ x: c.x, y: c.y }), { color: tierRgb(a) });
+      w.banner(`${a.user.tier.name} ${a.user.name} đã đến`, { color: a.user.tier.color, ms: 2600 });
+    }
+  },
+  cheer(w, a) {
+    const c = w.charFor(a.user, 1800);
+    if (!c) return;
+    w.hearts(c.x, headTop(c), { n: 3 });
   },
   follow(w, a) {
-    const c = w.charFor(a.user, 3500);
+    const c = w.charFor(a.user, 3000);
     if (!c) return;
-    w.emote(c, '⭐', 3000);
-    w.float(c.x, c.y - 150, '+ Theo dõi', '#ffe082');
-    w.burst(c.x, c.y - 80, { kind: 'sparkle', n: 14, speed: 260 });
+    w.fx.sparkBurst(c.x, headTop(c), { n: 30, color: [255, 230, 140] });
+    w.float(c.x, headTop(c) - 70, '+ Theo dõi', '#ffe082');
   },
   share(w, a) {
-    const c = w.charFor(a.user, 3500);
+    const c = w.charFor(a.user, 3000);
     if (!c) return;
-    w.emote(c, '🔗', 3000);
-    w.float(c.x, c.y - 150, 'Đã chia sẻ', '#80deea');
+    w.float(c.x, headTop(c) - 70, 'Đã chia sẻ', '#80deea');
   },
   chat(w, a) {
-    const c = w.charFor(a.user, 5000);
+    const c = w.charFor(a.user, 4500);
     if (!c) return;
     w.say(c, a.data.text);
   },
@@ -305,56 +267,75 @@ const defaults = {
   request_song(w, a) {
     const c = w.charFor(a.user, 5000);
     if (!c) return;
-    w.emote(c, '🎵', 4000);
+    w.fx.wash({ color: [170, 80, 255], ms: 2500 });
     w.banner(`🎵 ${a.user.name} chọn bài`, { sub: a.data.text, color: '#ce93d8', ms: 4500 });
   },
   gift_small(w, a) {
-    const c = w.charFor(a.user, 6000);
+    const c = w.charFor(a.user, 4000);
     if (!c) return;
-    w.fly(itemOf(a), srcOf(c), c, { onArrive: () => w.hold(c, itemOf(a)) });
-    w.float(c.x, c.y - 160, giftLabel(a), '#fff59d');
+    w.fly(itemOf(a), srcOf(c), w.chest(c), {
+      size: 54,
+      onArrive: () => {
+        w.fx.sparkBurst(c.x, w.chest(c).y, { n: 26 });
+        w.hold(c, itemOf(a), 3000);
+      },
+    });
+    w.float(c.x, headTop(c) - 80, labelOf(a), '#fff59d');
   },
   gift_medium(w, a) {
     const c = w.charFor(a.user, 6000);
     if (!c) return;
-    w.fly(itemOf(a), srcOf(c), c, { size: 80, onArrive: () => w.hold(c, itemOf(a)) });
-    w.spotlight(c, 4000);
-    w.burst(c.x, c.y - 80, { kind: 'sparkle', n: 24 });
+    w.fx.beam(() => ({ x: c.x, y: c.y }), { ms: 5000, color: tierRgb(a) });
+    w.pose(c, 'dance', 5000);
+    w.fly(itemOf(a), srcOf(c), w.chest(c), {
+      size: 70,
+      onArrive: () => {
+        w.fx.sparkBurst(c.x, w.chest(c).y, { n: 50 });
+        w.hold(c, itemOf(a), 4000);
+      },
+    });
     w.banner(a.say || `${a.user.name} tặng ${giftLabel(a)}`, { color: a.user.tier.color, ms: 3000 });
   },
   gift_big(w, a) {
     const c = w.charFor(a.user, 8000);
     if (!c) return;
-    w.fly(itemOf(a), srcOf(c), c, { size: 110, arc: 300, ms: 1200, onArrive: () => w.hold(c, itemOf(a), 15000) });
-    w.spotlight(c, 5000);
-    w.flash('#fff8e1');
-    w.burst(W / 2, 700, { kind: 'confetti', n: 90, spread: 1.4 });
-    w.banner(a.say || `${a.user.name} tặng ${giftLabel(a)}`, { sub: giftLabel(a), big: true, color: '#ffca28', ms: 4500 });
-    return 4500;
+    w.fx.flash({ alpha: 0.35 });
+    w.fx.beam(() => ({ x: c.x, y: c.y }), { ms: 6500, color: [255, 215, 120], width: 150 });
+    w.fx.sparkFountain(110, floorY(), { ms: 4000 });
+    w.fx.sparkFountain(W - 110, floorY(), { ms: 4000 });
+    w.pose(c, 'cheer', 5000);
+    w.fly(itemOf(a), srcOf(c), w.chest(c), { size: 96, arc: 260, ms: 1200, onArrive: () => w.hold(c, itemOf(a), 6000) });
+    w.banner(a.say || `${a.user.name} tặng ${giftLabel(a)}`, { sub: giftLabel(a), big: true, color: '#ffca28', ms: 5000 });
+    return 5000;
   },
   gift_huge(w, a) {
-    const c = w.charFor(a.user, 9000);
+    const c = w.charFor(a.user, 9500);
     if (!c) return;
-    w.flash('#fffde7', 700);
-    w.fireworks(6500);
-    w.spotlight(c, 7000);
-    for (const o of w.chars) {
-      w.emote(o, '🎉', 5000);
-      setTimeout(() => w.fly(itemOf(a), srcOf(o), o, { size: 56, onArrive: () => w.hold(o, itemOf(a), 15000) }), rand(0, 1500));
-    }
-    w.banner(a.say || `Cảm ơn ${a.user.name}!`, { sub: giftLabel(a), big: true, color: '#ff8a65', ms: 6500 });
-    return 6500;
+    const fy = floorY();
+    w.fx.strobe({ ms: 1200 });
+    w.fx.flash({ alpha: 0.6, ms: 700 });
+    w.fx.laserFan({ ms: 7000, y: 380 });
+    [W * 0.2, W * 0.8].forEach((x, i) => setTimeout(() => w.fx.co2Jet(x, fy, { ms: 1400 }), 400 + i * 150));
+    setTimeout(() => [W * 0.35, W * 0.65].forEach((x) => w.fx.co2Jet(x, fy, { ms: 1200 })), 3500);
+    [90, W * 0.33, W * 0.67, W - 90].forEach((x) => w.fx.sparkFountain(x, fy, { ms: 5500, height: 800 }));
+    w.fx.confettiRain({ ms: 6500 });
+    w.fx.beam(() => ({ x: c.x, y: c.y }), { ms: 8000, color: [255, 215, 120], width: 160 });
+    for (const o of w.chars) w.pose(o, 'cheer', 6500);
+    w.banner(a.say || `Cảm ơn ${a.user.name}!`, { sub: giftLabel(a), big: true, color: '#ff8a65', ms: 7000 });
+    return 7500;
   },
   tier_up(w, a) {
     const c = w.charFor(a.user, 5000);
     if (!c) return;
-    w.burst(c.x, c.y - 80, { kind: 'emoji', e: '🎖️', n: 10, speed: 380 });
+    const col = rgb(a.data.to.color);
+    w.fx.halo(() => ({ x: c.x, y: c.y }), { color: col, ms: 3000 });
+    w.fx.beam(() => ({ x: c.x, y: c.y }), { ms: 3500, color: col });
     w.banner(`🎖️ ${a.user.name} lên ${a.data.to.name}!`, { color: a.data.to.color, big: true, ms: 3500 });
     return 3500;
   },
   unknown(w, a) {
     const c = a.user && w.charFor(a.user, 3000);
-    if (c) w.float(c.x, 600, a.action);
+    if (c) w.float(c.x, headTop(c) - 70, a.action);
   },
 };
 
@@ -414,24 +395,25 @@ function speak(t) {
   speechSynthesis.speak(u);
 }
 
-// ---------------- Quản lý nhân vật ----------------
+// ---------------- Đám đông ----------------
 const isBusy = (c) => Boolean(c.viewer) && now < c.busyUntil;
 
-/** Tạo đám đông cố định cho cảnh mới. */
 function populate() {
   chars.clear();
   viewerChar.clear();
-  const n = scene?.maxChars ?? DEFAULT_CHARS;
+  const spots = typeof scene.spots === 'function' ? scene.spots(w) : scene.spots;
+  const n = spots ? Math.min(spots.length, scene.maxChars ?? spots.length) : scene.maxChars ?? DEFAULT_CHARS;
+  const order = spots ? [...spots].sort(() => Math.random() - 0.5) : null;
   for (let i = 0; i < n; i++) {
-    const c = { id: `npc-${i}`, hue: (i * 47 + 20) % 360, viewer: null, busyUntil: 0, nextWander: now + rand(2, 14) };
-    chars.set(c.id, c);
-    const s = scene.spot(w, c);
+    const c = { id: `npc-${i}`, seed: Math.random(), hue: (i * 47 + 20) % 360, viewer: null, busyUntil: 0, nextWander: now + rand(2, 14) };
+    const s = order ? order[i] : scene.spot(w, c);
+    c.home = { x: s.x, y: s.y };
     c.x = c.tx = s.x;
     c.y = c.ty = s.y;
+    chars.set(c.id, c);
   }
 }
 
-/** Bỏ tên người xem khỏi nhân vật (diễn xong, hoặc người đó bị chặn). */
 function release(c) {
   if (c.viewer && viewerChar.get(c.viewer.id) === c) viewerChar.delete(c.viewer.id);
   c.viewer = null;
@@ -443,7 +425,7 @@ function updateChars(dt) {
     const dx = c.tx - c.x;
     const dy = c.ty - c.y;
     const d = Math.hypot(dx, dy);
-    const sp = 260 * dt;
+    const sp = 240 * dt;
     c.moving = d > 2;
     if (d <= sp) {
       c.x = c.tx;
@@ -452,6 +434,7 @@ function updateChars(dt) {
       c.x += (dx / d) * sp;
       c.y += (dy / d) * sp;
     }
+    if (c.pose && now >= c.poseUntil) c.pose = null;
     if (c.viewer && now >= c.busyUntil) release(c);
     if (!c.moving && !isBusy(c) && now > c.nextWander && scene.wander) {
       const p = scene.wander(w, c);
@@ -461,159 +444,124 @@ function updateChars(dt) {
   }
 }
 
-function drawChar(c) {
-  const bob = c.moving ? Math.abs(Math.sin(now * 10)) * 8 : Math.sin(now * 2 + c.hue) * 2;
-  const x = c.x;
-  const y = c.y - bob;
-  const v = isBusy(c) ? c.viewer : null; // người xem đang được diễn (null = nhân vật vô danh)
-  const tierColor = v?.tier?.color || 'rgba(255,255,255,.35)';
-  const rank = v?.tier?.rank || 0;
-
-  // bóng
+/** Thân nhân vật mặc định (dạng hoạt hình đơn giản) khi scene không tự vẽ. */
+function defaultBody(c, { x, y, s, lit }) {
   ctx.fillStyle = 'rgba(0,0,0,.28)';
   ctx.beginPath();
-  ctx.ellipse(c.x, c.y + 4, 38, 11, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, c.y + 4, 38 * s, 11 * s, 0, 0, Math.PI * 2);
   ctx.fill();
-  // thân
-  ctx.fillStyle = `hsl(${c.hue},55%,48%)`;
+  ctx.fillStyle = `hsl(${c.hue},45%,42%)`;
   ctx.beginPath();
-  ctx.roundRect(x - 30, y - 70, 60, 70, [26, 26, 12, 12]);
+  ctx.roundRect(x - 30 * s, y - 70 * s, 60 * s, 70 * s, [26 * s, 26 * s, 12 * s, 12 * s]);
   ctx.fill();
-  // đầu (ảnh đại diện hoặc chữ cái đầu)
-  const hy = y - 100;
-  const r = 36;
-  ctx.save();
+  ctx.fillStyle = `hsl(${c.hue},55%,70%)`;
   ctx.beginPath();
-  ctx.arc(x, hy, r, 0, Math.PI * 2);
-  ctx.closePath();
-  const im = v && img(v.avatar);
-  if (im) {
-    ctx.clip();
-    ctx.drawImage(im, x - r, hy - r, r * 2, r * 2);
-  } else {
-    ctx.fillStyle = `hsl(${c.hue},65%,72%)`;
-    ctx.fill();
-    if (v) text((v.name || '?').trim().charAt(0).toUpperCase(), x, hy + 2, { size: 34, color: '#263238', stroke: null });
-    else {
-      // mặt đơn giản cho nhân vật vô danh
-      ctx.fillStyle = '#263238';
-      ctx.beginPath();
-      ctx.arc(x - 12, hy - 4, 4, 0, Math.PI * 2);
-      ctx.arc(x + 12, hy - 4, 4, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  ctx.restore();
-  ctx.lineWidth = v ? 4 + rank * 1.5 : 2;
-  ctx.strokeStyle = tierColor;
-  ctx.beginPath();
-  ctx.arc(x, hy, r, 0, Math.PI * 2);
-  ctx.stroke();
-  if (rank >= 3) emoji('👑', x, hy - r - 14, 34);
-
-  // đồ đang cầm
-  if (c.item && now < c.item.until) emoji(c.item.e, x + 46, y - 40, 44);
-  // biểu cảm
-  if (c.emote && now < c.emote.until) emoji(c.emote.e, x + 40, hy - 40, 38);
-
-  // tên người xem (chỉ khi đang diễn cho người đó)
-  if (v) {
-    ctx.font = `700 24px ${FONT}`;
-    const tw = Math.min(ctx.measureText(v.name).width, 220) + 22;
-    pill(x - tw / 2, c.y + 12, tw, 34, 'rgba(0,0,0,.55)');
-    text(v.name, x, c.y + 30, { size: 24, color: rank >= 1 ? tierColor : '#fff', stroke: null, maxWidth: 220 });
-  }
-
-  // bong bóng chat
-  if (c.bubble && now < c.bubble.until) {
-    const lines = wrap(c.bubble.text, 330, 26);
-    let bw = 0;
-    ctx.font = `600 26px ${FONT}`;
-    for (const l of lines) bw = Math.max(bw, ctx.measureText(l).width);
-    bw += 32;
-    const bh = lines.length * 32 + 20;
-    const bx = clamp(x - bw / 2, 10, W - bw - 10);
-    const by = hy - r - 26 - bh;
-    pill(bx, by, bw, bh, 'rgba(255,255,255,.95)', 18);
-    ctx.fillStyle = 'rgba(255,255,255,.95)';
-    ctx.beginPath();
-    ctx.moveTo(x - 10, by + bh);
-    ctx.lineTo(x + 10, by + bh);
-    ctx.lineTo(x, by + bh + 14);
-    ctx.fill();
-    lines.forEach((l, i) => text(l, bx + bw / 2, by + 26 + i * 32, { size: 26, color: '#212121', weight: 600, stroke: null }));
+  ctx.arc(x, y - 100 * s, 34 * s, 0, Math.PI * 2);
+  ctx.fill();
+  if (lit) {
+    ctx.strokeStyle = lit;
+    ctx.lineWidth = 4;
+    ctx.stroke();
   }
 }
 
-// ---------------- Hiệu ứng ----------------
+function drawChar(c) {
+  const v = isBusy(c) ? c.viewer : null;
+  const s = scaleOf(c);
+  const dance = c.pose === 'dance' ? Math.sin(now * 9 + c.seed * 6) : 0;
+  const bob = c.moving ? Math.abs(Math.sin(now * 10)) * 6 * s : Math.abs(dance) * 10 * s + Math.sin(now * 1.6 + c.seed * 9) * 1.5 * s;
+  const x = c.x + dance * 6 * s;
+  const y = c.y - bob;
+  const lit = v ? v.tier?.color || '#ffffff' : null;
+  (scene.drawBody ? (o) => scene.drawBody(ctx, w, c, o) : (o) => defaultBody(c, o))({ x, y, s, lit });
+
+  const top = headTop(c) - bob;
+  if (c.item && now < c.item.until) emoji(c.item.e, x + 34 * s, y - (scene?.charHeight ?? 136) * s * 0.5, 40 * s);
+
+  if (!v) return;
+  // Thẻ người xem trên đầu: ảnh đại diện + tên
+  const ts = clamp(s, 0.8, 1.15);
+  ctx.font = `700 ${Math.round(22 * ts)}px ${FONT}`;
+  const name = v.name || '';
+  const nw = Math.min(ctx.measureText(name).width, 200 * ts);
+  const ar = 19 * ts;
+  const tw = nw + ar * 2 + 26 * ts;
+  const th = ar * 2 + 8 * ts;
+  const tx = clamp(x - tw / 2, 8, W - tw - 8);
+  const ty = top - th - 14 * ts;
+  const rank = v.tier?.rank || 0;
+  pill(tx, ty, tw, th, 'rgba(10,8,18,.78)');
+  ctx.strokeStyle = lit;
+  ctx.lineWidth = rank >= 1 ? 2.5 : 1.2;
+  ctx.beginPath();
+  ctx.roundRect(tx, ty, tw, th, th / 2);
+  ctx.stroke();
+  const ax = tx + 4 * ts + ar;
+  const ay = ty + th / 2;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(ax, ay, ar, 0, Math.PI * 2);
+  ctx.clip();
+  const im = img(v.avatar);
+  if (im) ctx.drawImage(im, ax - ar, ay - ar, ar * 2, ar * 2);
+  else {
+    ctx.fillStyle = `hsl(${c.hue},45%,55%)`;
+    ctx.fillRect(ax - ar, ay - ar, ar * 2, ar * 2);
+    text(name.trim().charAt(0).toUpperCase() || '?', ax, ay + 1, { size: 20 * ts, stroke: null });
+  }
+  ctx.restore();
+  text(name, ax + ar + 8 * ts, ay + 1, { size: 22 * ts, align: 'left', color: rank >= 1 ? lit : '#fff', stroke: null, maxWidth: 200 * ts });
+  if (rank >= 3) emoji('👑', ax, ty - 6 * ts, 26 * ts);
+  if (c.emote && now < c.emote.until) emoji(c.emote.e, tx + tw + 4, ay, 30 * ts);
+
+  // Bong bóng chat
+  if (c.bubble && now < c.bubble.until) {
+    const lines = wrap(c.bubble.text, 320, 25);
+    let bw = 0;
+    ctx.font = `600 25px ${FONT}`;
+    for (const l of lines) bw = Math.max(bw, ctx.measureText(l).width);
+    bw += 30;
+    const bh = lines.length * 31 + 18;
+    const bx = clamp(x - bw / 2, 10, W - bw - 10);
+    const by = ty - bh - 12;
+    pill(bx, by, bw, bh, 'rgba(255,255,255,.94)', 16);
+    ctx.fillStyle = 'rgba(255,255,255,.94)';
+    ctx.beginPath();
+    ctx.moveTo(x - 9, by + bh);
+    ctx.lineTo(x + 9, by + bh);
+    ctx.lineTo(x, by + bh + 11);
+    ctx.fill();
+    lines.forEach((l, i) => text(l, bx + bw / 2, by + 24 + i * 31, { size: 25, color: '#1a1a1a', weight: 600, stroke: null }));
+  }
+}
+
+// ---------------- Hạt đơn giản, đồ bay, chữ nổi ----------------
 function updateDraw(dt) {
-  // hạt
-  particles = particles.filter((p) => (p.life += dt) < p.max);
-  for (const p of particles) {
-    p.vy += p.g * dt;
-    p.vx *= 0.99;
+  bits = bits.filter((p) => (p.life += dt) < p.max);
+  for (const p of bits) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
-    p.rot += p.vr * dt;
-    const a = 1 - p.life / p.max;
-    ctx.globalAlpha = a;
-    if (p.kind === 'hearts' || p.kind === 'emoji') emoji(p.e, p.x, p.y, p.size);
-    else if (p.kind === 'confetti') {
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.rot);
-      ctx.fillStyle = p.color;
-      ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
-      ctx.restore();
-    } else {
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.kind === 'spark' ? p.size * a + 1 : p.size / 2, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    ctx.globalAlpha = 1 - p.life / p.max;
+    emoji(p.e, p.x, p.y, p.size);
   }
   ctx.globalAlpha = 1;
 
-  // đồ bay
   flyers = flyers.filter((f) => {
     const p = (now - f.born) / f.dur;
-    const tx = f.to.x;
-    const ty = f.to.y - (f.to.id ? 60 : 0);
     if (p >= 1) {
       f.onArrive?.();
       return false;
     }
     const e = ease(p);
-    emoji(f.e, f.x0 + (tx - f.x0) * e, f.y0 + (ty - f.y0) * e - Math.sin(Math.PI * p) * f.arc, f.size);
+    emoji(f.e, f.x0 + (f.to.x - f.x0) * e, f.y0 + (f.to.y - f.y0) * e - Math.sin(Math.PI * p) * f.arc, f.size);
     return true;
   });
 
-  // chữ nổi
   floaters = floaters.filter((f) => {
     const p = (now - f.born) / f.dur;
     if (p >= 1) return false;
     ctx.globalAlpha = 1 - p * p;
-    text(f.t, f.x, f.y - p * 90, { size: f.size, color: f.color });
-    ctx.globalAlpha = 1;
-    return true;
-  });
-}
-
-function drawEffects(layer) {
-  effects = effects.filter((e) => {
-    const p = (now - e.born) / e.dur;
-    if (p >= 1) return false;
-    if (e.layer === layer) e.draw(ctx, p);
-    return true;
-  });
-}
-
-function drawProps() {
-  props = props.filter((p) => {
-    const age = now - p.born;
-    if (age > p.dur) return false;
-    ctx.globalAlpha = clamp((p.dur - age) / 0.8, 0, 1);
-    emoji(p.e, p.x, p.y - Math.min(age, 0.3) * 30, p.size);
+    text(f.t, f.x, f.y - p * 80, { size: f.size, color: f.color });
     ctx.globalAlpha = 1;
     return true;
   });
@@ -621,44 +569,50 @@ function drawProps() {
 
 function drawBanners() {
   banners = banners.filter((b) => now - b.born < b.dur);
-  let y = 640;
+  let y = 600;
   for (const b of banners) {
     const age = now - b.born;
-    const a = Math.min(age / 0.25, (b.dur - age) / 0.4, 1);
-    const scale = b.big ? 1 + 0.08 * Math.max(0, 1 - age / 0.3) : 1;
-    const h = b.big ? 150 : 92;
+    const a = clamp(Math.min(age / 0.25, (b.dur - age) / 0.4, 1), 0, 1);
+    const pop = b.big ? 1 + 0.1 * Math.max(0, 1 - age / 0.3) : 1;
+    const h = b.big ? 150 : 88;
     ctx.save();
-    ctx.globalAlpha = clamp(a, 0, 1);
+    ctx.globalAlpha = a;
     ctx.translate(W / 2, y + h / 2);
-    ctx.scale(scale, scale);
-    const g = ctx.createLinearGradient(-480, 0, 480, 0);
-    g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(0.15, 'rgba(10,10,20,.82)');
-    g.addColorStop(0.85, 'rgba(10,10,20,.82)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.scale(pop, pop);
+    const g = ctx.createLinearGradient(-540, 0, 540, 0);
+    g.addColorStop(0, 'rgba(8,6,14,0)');
+    g.addColorStop(0.18, 'rgba(8,6,14,.82)');
+    g.addColorStop(0.82, 'rgba(8,6,14,.82)');
+    g.addColorStop(1, 'rgba(8,6,14,0)');
     ctx.fillStyle = g;
     ctx.fillRect(-540, -h / 2, 1080, h);
-    ctx.fillStyle = b.color;
-    ctx.fillRect(-380, -h / 2, 760, 4);
-    ctx.fillRect(-380, h / 2 - 4, 760, 4);
-    text(b.t, 0, b.sub ? -h * 0.16 : 0, { size: b.big ? 50 : 38, color: b.color, maxWidth: 960 });
-    if (b.sub) text(b.sub, 0, h * 0.24, { size: b.big ? 34 : 28, color: '#fff', weight: 600, maxWidth: 940 });
+    const line = ctx.createLinearGradient(-420, 0, 420, 0);
+    line.addColorStop(0, 'rgba(255,255,255,0)');
+    line.addColorStop(0.5, b.color);
+    line.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = line;
+    ctx.fillRect(-420, -h / 2, 840, 3);
+    ctx.fillRect(-420, h / 2 - 3, 840, 3);
+    ctx.shadowColor = b.color;
+    ctx.shadowBlur = b.big ? 24 : 12;
+    text(b.t, 0, b.sub ? -h * 0.17 : 0, { size: b.big ? 50 : 36, color: b.color, maxWidth: 960, stroke: null });
+    ctx.shadowBlur = 0;
+    if (b.sub) text(b.sub, 0, h * 0.24, { size: b.big ? 32 : 26, color: '#fff', weight: 600, maxWidth: 940, stroke: null });
     ctx.restore();
-    y += h + 16;
+    y += h + 14;
   }
 }
 
-// ---------------- HUD tối giản (scene tự vẽ thêm nếu cần, dữ liệu ở w.state) ----------------
+// ---------------- HUD tối giản ----------------
 function drawHud() {
   const g = ctx.createLinearGradient(0, 0, 0, 200);
-  g.addColorStop(0, 'rgba(0,0,0,.6)');
+  g.addColorStop(0, 'rgba(0,0,0,.55)');
   g.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, 200);
   const loc = state.location;
-  text(state.worldName || '', 40, 62, { size: 34, color: '#ffe082', align: 'left' });
-  text(loc ? `${loc.emoji} ${loc.name}` : '🌙 Đang nghỉ', 40, 112, { size: 52, align: 'left' });
-  // Chấm đỏ góc phải: mất kết nối tới máy chủ
+  text(state.worldName || '', 40, 62, { size: 32, color: '#ffe082', align: 'left' });
+  text(loc ? `${loc.emoji} ${loc.name}` : '🌙 Đang nghỉ', 40, 110, { size: 48, align: 'left' });
   if (!connected) {
     ctx.fillStyle = '#e53935';
     ctx.beginPath();
@@ -667,7 +621,6 @@ function drawHud() {
   }
 }
 
-// ---------------- Màn hình nghỉ (ngoài giờ mở cửa) ----------------
 function drawClosed() {
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, '#0d1b2a');
@@ -678,6 +631,47 @@ function drawClosed() {
   if (state.next) text(`Mở lại lúc ${state.next.start} · ${state.next.emoji} ${state.next.name}`, W / 2, H / 2 + 40, { size: 40 });
 }
 
+// ---------------- Nền video/ảnh thật ----------------
+function loadMedia(id, m) {
+  if (!m) return null;
+  const url = (p) => `/locations/${id}/${p}`;
+  if (m.video) {
+    const v = document.createElement('video');
+    Object.assign(v, { muted: true, loop: true, playsInline: true, autoplay: true, preload: 'auto' });
+    v.setAttribute('playsinline', '');
+    v.src = url(m.video);
+    v.addEventListener('error', () => {
+      // không có video thì thử ảnh, không có nữa thì scene tự vẽ nền
+      if (m.image && media?.el === v) media = { el: imageEl(url(m.image)), kind: 'image' };
+    });
+    v.play().catch(() => {});
+    return { el: v, kind: 'video' };
+  }
+  if (m.image) return { el: imageEl(url(m.image)), kind: 'image' };
+  return null;
+}
+function imageEl(src) {
+  const im = new Image();
+  im.src = src;
+  return im;
+}
+function mediaReady() {
+  const el = media?.el;
+  if (!el) return false;
+  return media.kind === 'video' ? el.readyState >= 2 && !el.error : el.complete && el.naturalWidth > 0;
+}
+function drawMedia() {
+  if (!mediaReady()) return;
+  const el = media.el;
+  if (media.kind === 'video' && el.paused) el.play().catch(() => {});
+  const sw = media.kind === 'video' ? el.videoWidth : el.naturalWidth;
+  const sh = media.kind === 'video' ? el.videoHeight : el.naturalHeight;
+  const k = Math.max(W / sw, H / sh); // phủ kín khung, cắt phần thừa
+  const dw = sw * k;
+  const dh = sh * k;
+  ctx.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh);
+}
+
 // ---------------- Chuyển cảnh ----------------
 async function applyState(s) {
   const prev = state.location?.id || null;
@@ -685,24 +679,27 @@ async function applyState(s) {
   const nextId = state.location?.id || null;
   if (nextId === sceneId && (scene || !nextId)) return;
   const title = state.location ? `${state.location.emoji} ${state.location.name}` : '🌙 Đóng cửa';
-  const mod = nextId ? await import(`/locations/${nextId}/scene.js?v=${Date.now()}`).catch((err) => {
-    console.error('Không tải được scene', nextId, err);
-    return null;
-  }) : null;
+  const mod = nextId
+    ? await import(`/locations/${nextId}/scene.js?v=${Date.now()}`).catch((err) => {
+        console.error('Không tải được scene', nextId, err);
+        return null;
+      })
+    : null;
   const swap = () => {
+    if (media?.kind === 'video') media.el.pause();
     scene = mod?.default || null;
     sceneId = nextId;
+    media = scene ? loadMedia(nextId, state.location?.media) : null;
     chars.clear();
     viewerChar.clear();
     if (scene) populate();
-    particles = [];
+    bits = [];
     flyers = [];
-    props = [];
-    effects = [];
+    fx.clear();
     stageBusyUntil = 0;
   };
   if (prev === null && sceneId === null && !scene) {
-    swap(); // lần đầu: vào thẳng
+    swap();
     transition = { born: now, title, swapped: true, introOnly: true };
   } else transition = { born: now, title, swapped: false, swap };
 }
@@ -737,19 +734,17 @@ function frame(ts) {
   ctx.clearRect(0, 0, W, H);
 
   if (scene && state.location) {
+    drawMedia();
     scene.background(ctx, w);
-    drawEffects('under');
-    drawProps();
+    fx.draw('under');
     updateChars(dt);
     const list = [...chars.values()].sort((a, b) => a.y - b.y);
-    for (const c of list) {
-      scene.drawChar?.(ctx, w, c);
-      drawChar(c);
-    }
+    for (const c of list) drawChar(c);
     scene.foreground?.(ctx, w);
   } else drawClosed();
 
-  drawEffects('over');
+  fx.update(dt);
+  fx.draw('over');
   updateDraw(dt);
   drawHud();
   drawBanners();
@@ -786,4 +781,4 @@ function connect() {
 connect();
 
 // Cho phép thử nhanh trên trình duyệt: window.world
-window.world = { w, handle, get state() { return state; } };
+window.world = { w, handle, get state() { return state; }, get media() { return media; } };

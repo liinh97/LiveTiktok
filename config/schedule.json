@@ -1,6 +1,6 @@
 {
-  "_ghi_chu": "Mỗi khung giờ mở một địa điểm (thư mục trong locations/). Ngoài các khung giờ là 'đóng cửa'. Ví dụ nhiều địa điểm: [{\"start\":\"06:00\",\"end\":\"11:00\",\"location\":\"a\"},{\"start\":\"20:00\",\"end\":\"24:00\",\"location\":\"b\"}]",
+  "_ghi_chu": "Mỗi khung giờ mở một địa điểm (thư mục trong locations/). Ngoài các khung giờ là 'đóng cửa'. Đổi tay từ bảng điều khiển được. Ví dụ nhiều địa điểm: [{\"start\":\"06:00\",\"end\":\"11:00\",\"location\":\"demo\"},{\"start\":\"20:00\",\"end\":\"24:00\",\"location\":\"bar\"}]",
   "slots": [
-    { "start": "00:00", "end": "24:00", "location": "demo" }
+    { "start": "00:00", "end": "24:00", "location": "bar" }
   ]
 }

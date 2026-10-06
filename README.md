@@ -81,11 +81,22 @@ Một số nguyên tắc:
 - **Sự kiện thử** từ bảng điều khiển không tính vào thống kê.
 - Mỗi lần đổi địa điểm là một **ca**. Bảng điều khiển hiện xu, xu/giờ và số người tặng của ca đó.
 
+## Bối cảnh có sẵn
+
+- `bar` — Bar / lounge phong cách gần đời thực: phòng tối, quầy bar sáng, đám đông bóng người ngược sáng.
+  Quà nhỏ: ly Mojito bay tới · quà vừa: đèn rọi + nhảy · quà lớn: chai rượu cắm pháo sáng + pháo sáng lạnh hai bên ·
+  quà khủng: laser, khói CO2, pháo sáng, mưa kim tuyến, cả quán nâng ly. Lệnh `!nhac <tên bài>` cho Khách quen trở lên.
+  Muốn nền thật: xem `locations/bar/assets/README.md`.
+- `demo` — cảnh tối giản để kiểm tra.
+
+Hiệu ứng sân khấu dùng chung cho mọi bối cảnh nằm ở `public/world/fx.js` (gọi qua `w.fx`): `sparkFountain`, `sparkBurst`,
+`co2Jet`, `confettiRain`, `laserFan`, `strobe`, `flash`, `wash`, `beam`, `halo`, `custom`.
+
 ## Thêm một địa điểm (loại hình live) mới
 
 1. Sao chép `locations/demo` thành `locations/<tên-mới>`.
 2. Sửa `location.json`: `name`, `emoji`, và `rules` nếu muốn ghi đè luật mặc định.
-3. Sửa `scene.js`: vẽ nền trong `background()`. Có thể thêm `actions` để diễn hành động theo kiểu riêng; hợp đồng đầy đủ ghi ở đầu `public/world/engine.js`.
+3. Sửa `scene.js`: vẽ nền trong `background()` (hoặc thả video/ảnh nền vào `assets/background.*`). Có thể thêm `actions` để diễn hành động theo kiểu riêng; hợp đồng đầy đủ ghi ở đầu `public/world/engine.js`.
 4. Thêm khung giờ vào `config/schedule.json`.
 
 Hành động gửi xuống cảnh có tên: `enter`, `cheer`, `follow`, `share`, `chat`, `crowd`, `gift_small`, `gift_medium`, `gift_big`, `gift_huge`, `tier_up`, và các tên tự đặt trong luật. Dữ liệu tuỳ ý cho cảnh được đặt trong luật qua trường `params`.

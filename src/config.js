@@ -43,6 +43,18 @@ export function loadConfig(env = process.env) {
   return cfg;
 }
 
+const MEDIA = { video: ['background.mp4', 'background.webm'], image: ['background.jpg', 'background.jpeg', 'background.png', 'background.webp'] };
+
+/** Video/ảnh nền thật trong locations/<id>/assets/ (nếu có). Quét mỗi lần gọi để thả file vào là dùng được ngay. */
+export function findMedia(id, dir = path.join(ROOT, 'locations')) {
+  const out = {};
+  for (const [kind, names] of Object.entries(MEDIA)) {
+    const hit = names.find((n) => fs.existsSync(path.join(dir, id, 'assets', n)));
+    if (hit) out[kind] = `assets/${hit}`;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 /** Quét thư mục locations/: mỗi thư mục có location.json + scene.js là một địa điểm. */
 export function loadLocations(dir = path.join(ROOT, 'locations')) {
   const out = {};
