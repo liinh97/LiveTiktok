@@ -1600,8 +1600,17 @@ function syncMusic() {
     .catch((err) => (audioBlocked = err?.name === 'NotAllowedError')); // chỉ khi trình duyệt chặn tự phát
 }
 // Trình duyệt thường chặn tự phát nhạc có tiếng: bấm vào trang một lần để bật (OBS không bị chặn)
+// Trên điện thoại (live bằng chia sẻ màn hình): chạm một lần thì vào toàn màn hình, ẩn thanh địa chỉ
+const isTouch = matchMedia('(pointer: coarse)').matches;
+const canFullscreen = isTouch && !!document.documentElement.requestFullscreen;
+const needFullscreen = () => canFullscreen && !document.fullscreenElement;
 addEventListener('pointerdown', () => {
   if (audioBlocked && audioSong) audio.play().then(() => (audioBlocked = false)).catch(() => {});
+  if (needFullscreen()) {
+    document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+      .then(() => screen.orientation?.lock?.('portrait').catch(() => {}))
+      .catch(() => {});
+  }
 });
 
 let ws = null;
@@ -1730,9 +1739,10 @@ function drawHud() {
     pill(40, 202, 470, 46, 'rgba(0,0,0,.55)');
     text(`🤡 Nạn nhân của đêm: ${lead.name} (${lead.n})`, 58, 226, { size: 24, align: 'left', color: '#ffab91', stroke: null, maxWidth: 440 });
   }
-  if (audioBlocked && audioSong) {
+  if ((audioBlocked && audioSong) || needFullscreen()) {
+    const msg = audioBlocked && audioSong ? '🔇 Bấm vào màn hình để bật nhạc' : '📱 Chạm để xem toàn màn hình';
     pill(W / 2 - 250, 1840, 500, 54, 'rgba(0,0,0,.7)');
-    text('🔇 Bấm vào màn hình để bật nhạc', W / 2, 1867, { size: 26, stroke: null });
+    text(msg, W / 2, 1867, { size: 26, stroke: null });
   }
   if (cam.target && cam.z > 1.3) {
     const name = cam.target.viewer?.name || '';
