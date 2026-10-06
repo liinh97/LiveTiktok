@@ -24,6 +24,13 @@ const CHATS = [
   '!goi soda',
   '!nhac 2',
   '!vote 4',
+  '!nhay ga',
+  '!nhay sau',
+  '!nhay tpose',
+  '!nhay ngao',
+  '!troll Nam',
+  '!troll Linh',
+  '!khien',
 ];
 
 // Giá xu tham khảo; danh sách thật lấy từ TikTok

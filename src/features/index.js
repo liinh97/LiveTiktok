@@ -1,4 +1,4 @@
-// TÍNH NĂNG TƯƠNG TÁC theo địa điểm (gọi đồ, đổi nhạc, gọi dancer, mục tiêu chung...).
+// TÍNH NĂNG TƯƠNG TÁC theo địa điểm (gọi đồ, đổi nhạc, gọi dancer, mục tiêu chung, troll bạn bè...).
 // Bật/tắt và cấu hình trong locations/<id>/location.json -> "features". Trạng thái giữ ở máy chủ
 // để mọi màn hình (OBS, trình duyệt) thấy giống nhau và tải lại trang không mất.
 //
@@ -16,8 +16,9 @@ import { Dancers } from './dancers.js';
 import { Goal } from './goal.js';
 import { Music } from './music.js';
 import { Orders } from './orders.js';
+import { Troll } from './troll.js';
 
-const KINDS = { orders: Orders, music: Music, dancers: Dancers, goal: Goal };
+const KINDS = { orders: Orders, music: Music, dancers: Dancers, goal: Goal, troll: Troll };
 
 export class Features extends EventEmitter {
   /**

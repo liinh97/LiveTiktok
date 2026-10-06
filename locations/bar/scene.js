@@ -323,6 +323,9 @@ function drawLed(ctx, w, beat) {
     '🎵 !nhac <số> chọn bài · !vote <số>',
     '🥧 Tặng quà rồi !nem <tên> ném bánh kem',
     '🍹 Tặng quà rồi !moi <tên> mời nước',
+    '🤡 !troll <tên> + tặng quà: quà càng to troll càng nặng',
+    '🛡️ !khien + tặng quà: chống troll, dội ngược',
+    '🕺 !nhay ga · sau · tpose · ngao · deo (miễn phí)',
     dancerCmd ? `🐔 Tặng ${dancerCmd.gift} để gọi dancer` : null,
   ].filter(Boolean);
   const msg = tips.join('     ★     ') + '     ★     ';

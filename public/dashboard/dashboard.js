@@ -16,6 +16,7 @@ const STATE_VI = { connected: 'đã kết nối', connecting: 'đang kết nối
 const ACTION_VI = {
   enter: 'vào', cheer: 'thả tim', follow: 'theo dõi', share: 'chia sẻ', chat: 'chat', crowd: 'đám đông',
   gift_small: 'quà nhỏ', gift_medium: 'quà vừa', gift_big: 'quà lớn', gift_huge: 'quà khủng', tier_up: 'lên cấp', request_song: 'chọn nhạc',
+  troll: 'troll', troll_shield: 'bật khiên', troll_dance: 'nhảy troll', troll_top: 'nạn nhân của đêm', troll_armed: 'nhắm troll',
 };
 
 async function call(path, body) {

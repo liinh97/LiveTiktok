@@ -38,6 +38,17 @@ const locations = {
       },
       dancers: { visitSec: 20, list: [{ id: 'ga', name: 'Gà Quay', costume: 'chicken' }, { id: 'gau', name: 'Gấu Béo', costume: 'bear' }] },
       goal: { label: 'Tháp trà sữa', target: 100, growBy: 0.5 },
+      troll: {
+        creditSec: 30,
+        shieldSec: 60,
+        selfCooldownSec: 20,
+        tricks: [
+          { id: 'banana', name: 'Vỏ chuối', emoji: '🍌', minCoins: 1 },
+          { id: 'fart', name: 'Xì hơi', emoji: '💨', minCoins: 30 },
+          { id: 'coffin', name: 'Khiêng quan tài', emoji: '⚰️', minCoins: 99 },
+        ],
+        dances: [{ id: 'ga', name: 'Gà mổ thóc', emoji: '🐔', effect: 'chicken', aliases: ['gà'] }],
+      },
     },
   },
 };
@@ -152,4 +163,64 @@ test('mục tiêu chung: cộng dồn quà, đủ thì thưởng cả quán và 
   assert.ok(g);
   assert.equal(g.data.best, 'b');
   assert.deepEqual(s.f.publicState('bar').goal, { label: 'Tháp trà sữa', progress: 10, target: 150, round: 2 });
+});
+
+test('troll: gõ trước rồi tặng hoặc tặng trước rồi gõ, quà càng to trò càng nặng', () => {
+  const s = setup();
+  const nam = s.u('nam', 'Nam Béo');
+  const minh = s.u('minh', 'Minh');
+  s.chat(nam, 'hello');
+  assert.equal(s.chat(minh, '!troll ai khong co')[0].action, 'troll_notfound');
+  assert.equal(s.chat(minh, '!troll nam')[0].action, 'troll_armed');
+  const t1 = s.gift(minh, 'Rose', 1).find((a) => a.action === 'troll');
+  assert.equal(t1.data.trick.id, 'banana');
+  assert.equal(t1.data.to.id, 'nam');
+  assert.equal(t1.data.bounced, false);
+  // tặng trước rồi gõ; combo quà nhỏ cộng dồn
+  s.gift(minh, 'Rose', 10);
+  s.gift(minh, 'Rose', 20);
+  assert.equal(s.chat(minh, '!troll Nam')[0].data.trick.id, 'fart');
+  assert.equal(s.chat(minh, '!troll Nam')[0].action, 'troll_armed'); // mỗi lần tặng chỉ 1 lần troll
+  assert.equal(s.gift(minh, 'Hand Hearts', 100).find((a) => a.action === 'troll').data.trick.id, 'coffin');
+  // hết hạn thì phải tặng lại
+  s.gift(minh, 'Rose', 1);
+  s.clock.t += 31_000;
+  assert.equal(s.chat(minh, '!troll nam')[0].action, 'troll_armed');
+});
+
+test('troll: khiên dội ngược, đếm nạn nhân của đêm', () => {
+  const s = setup();
+  const nam = s.u('nam', 'Nam');
+  const minh = s.u('minh', 'Minh');
+  const lan = s.u('lan', 'Lan');
+  s.chat(nam, 'hi');
+  s.chat(minh, 'hi');
+  s.chat(lan, '!troll nam');
+  s.gift(lan, 'Rose', 1);
+  assert.equal(s.f.publicState('bar').troll.top[0].n, 1);
+  s.chat(lan, '!troll nam');
+  const second = s.gift(lan, 'Rose', 1);
+  assert.ok(second.some((a) => a.action === 'troll_top' && a.user.id === 'nam')); // lên đầu bảng
+  assert.equal(s.chat(nam, '!khien')[0].action, 'troll_hint');
+  assert.equal(s.gift(nam, 'Rose', 1).find((a) => a.action === 'troll_shield').data.sec, 60);
+  s.chat(minh, '!troll nam');
+  const [b] = s.gift(minh, 'Rose', 1).filter((a) => a.action === 'troll');
+  assert.equal(b.data.bounced, true);
+  assert.equal(b.data.to.id, 'minh');
+  assert.equal(b.data.shield.id, 'nam');
+  s.tick(61); // hết khiên
+  s.chat(minh, '!troll nam');
+  assert.equal(s.gift(minh, 'Rose', 1).find((a) => a.action === 'troll').data.to.id, 'nam');
+  assert.deepEqual(s.f.publicState('bar').troll.top.map((v) => [v.name, v.n]), [['Nam', 3], ['Minh', 1]]);
+});
+
+test('troll: !nhay tự nhảy miễn phí có thời gian chờ', () => {
+  const s = setup();
+  const a = s.u('a');
+  assert.equal(s.chat(a, '!nhay')[0].action, 'troll_dance_list');
+  assert.equal(s.chat(a, '!nhảy gà')[0].data.dance.effect, 'chicken');
+  assert.equal(s.chat(a, '!nhay ga')[0].action, 'troll_wait');
+  s.tick(20);
+  assert.equal(s.chat(a, '!nhay ga')[0].action, 'troll_dance');
+  assert.equal(s.chat(s.u('b'), '!nhay xyz')[0].action, 'troll_dance_list');
 });

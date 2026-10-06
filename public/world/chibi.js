@@ -391,7 +391,7 @@ function accessory(g, parts, x, y, hasAvatar) {
 
 /**
  * Tay vẽ mỗi khung hình (để giơ tay, vỗ tay, quẩy...). x, y: chân nhân vật; s: tỉ lệ.
- * pose: cheer | dance | wave | pump | clap | point | roof | wave2 | swing | (null = buông tay)
+ * pose: cheer | dance | wave | pump | clap | point | roof | wave2 | swing | carry | tpose | flap | noodle | (null = buông tay)
  * beat: số nhịp nhạc đã trôi (số thực) để tay chuyển động khớp nhịp.
  */
 export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2) {
@@ -402,6 +402,8 @@ export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2) {
   const odd = Math.floor(beat) % 2 === 1;
   let L;
   let R;
+  let LC = null; // điểm uốn (tay cong)
+  let RC = null;
   switch (pose) {
     case 'cheer': {
       const w = Math.sin(t * 8 + seed * 6) * 6 * s;
@@ -457,6 +459,32 @@ export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2) {
       R = [rx + (10 - 8 * k) * s, sy + (16 + 12 * k) * s];
       break;
     }
+    case 'carry': // giơ thẳng hai tay đỡ vật trên đầu (khiêng quan tài)
+      L = [lx - 2 * s, sy - 74 * s];
+      R = [rx + 2 * s, sy - 74 * s];
+      break;
+    case 'tpose': // dang thẳng hai tay cứng đơ
+      L = [lx - 36 * s, sy];
+      R = [rx + 36 * s, sy];
+      break;
+    case 'flap': {
+      // vỗ cánh kiểu con gà: khuỷu tay chống hông, đập lên xuống thật nhanh
+      const k = Math.sin(t * 22 + seed * 6) * 10 * s;
+      L = [lx - 16 * s, sy + 6 * s - k];
+      R = [rx + 16 * s, sy + 6 * s - k];
+      LC = [lx - 4 * s, sy + 16 * s];
+      RC = [rx + 4 * s, sy + 16 * s];
+      break;
+    }
+    case 'noodle': {
+      // tay mì sợi: uốn lượn lung tung
+      const a = t * 9 + seed * 6;
+      L = [lx - 26 * s + Math.sin(a) * 10 * s, sy - 10 * s + Math.cos(a * 1.3) * 26 * s];
+      R = [rx + 26 * s + Math.sin(a + 2) * 10 * s, sy - 10 * s + Math.cos(a * 1.1 + 1) * 26 * s];
+      LC = [lx - 14 * s + Math.cos(a * 1.7) * 22 * s, sy + Math.sin(a * 2.1) * 22 * s];
+      RC = [rx + 14 * s + Math.cos(a * 1.9 + 1) * 22 * s, sy + Math.sin(a * 2.3 + 2) * 22 * s];
+      break;
+    }
     default: {
       const k = Math.sin(t * 4 + seed * 6) * 2 * s;
       L = [lx - 6 * s, sy + 24 * s + k];
@@ -464,13 +492,16 @@ export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2) {
     }
   }
   ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
   ctx.strokeStyle = parts.outfit;
   ctx.lineWidth = 8 * s;
   ctx.beginPath();
   ctx.moveTo(lx, sy);
-  ctx.lineTo(L[0], L[1]);
+  if (LC) ctx.quadraticCurveTo(LC[0], LC[1], L[0], L[1]);
+  else ctx.lineTo(L[0], L[1]);
   ctx.moveTo(rx, sy);
-  ctx.lineTo(R[0], R[1]);
+  if (RC) ctx.quadraticCurveTo(RC[0], RC[1], R[0], R[1]);
+  else ctx.lineTo(R[0], R[1]);
   ctx.stroke();
   ctx.fillStyle = parts.skin;
   ctx.beginPath();

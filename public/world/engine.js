@@ -214,9 +214,19 @@ const w = {
     c.tx = c.x;
     c.ty = c.y;
   },
-  /** Hiệu ứng "bựa" sau khi uống/ăn: hiccup | fire | zoom | freeze | rocket | sour | hearts | pie */
-  drinkEffect(c, effect) {
-    applyEffect(c, effect);
+  /**
+   * Hiệu ứng "bựa" trên nhân vật. Đồ uống: hiccup | fire | zoom | freeze | rocket | sour | hearts | pie.
+   * Troll: derp | banana | potato | tpose | worm | chicken | noodle | fart | coffin. opts: { costume, sec }
+   */
+  drinkEffect(c, effect, opts) {
+    applyEffect(c, effect, opts);
+  },
+  /** Khiêng quan tài: 4 người mặc vest ra khiêng nhân vật đi một vòng quán. */
+  coffinDance(c) {
+    coffinDance(c);
+  },
+  removeNpc(c) {
+    if (c?.npc) removeChar(c);
   },
   scaleOf,
   headTop,
@@ -477,7 +487,7 @@ function updateChars(dt) {
     }
     if (c.effect && now > c.effect.until) c.effect = null;
     // to/nhỏ mượt theo ngoại hình
-    const target = c.size ? c.size / sceneScale(c.y) : c.look?.scale || 1;
+    const target = (c.size ? c.size / sceneScale(c.y) : c.look?.scale || 1) * (c.effect?.grow || 1);
     c.sm += (target - c.sm) * Math.min(1, dt * 5);
     if (c.pose && now >= c.poseUntil) c.pose = null;
     // tự đổi điệu nhảy sau vài giây (thỉnh thoảng xoay một vòng)
@@ -503,9 +513,10 @@ function updateChars(dt) {
 function spriteOf(c) {
   const av = c.viewer?.avatar ? img(c.viewer.avatar) : null;
   const res = (c.look?.scale || 1) > 1.3 ? 2 : 1.25;
-  const key = `${c.look.style}|${c.parts.costume || ''}|${av ? 1 : 0}|${res}`;
+  const costume = c.effect?.costume || c.parts.costume || '';
+  const key = `${c.look.style}|${costume}|${av ? 1 : 0}|${res}`;
   if (!c.sprite || c.spriteKey !== key) {
-    c.sprite = renderChibi(c.parts, av, res);
+    c.sprite = renderChibi(costume === (c.parts.costume || '') ? c.parts : { ...c.parts, costume }, av, res);
     c.spriteKey = key;
   }
   return c.sprite;
@@ -530,10 +541,12 @@ function drawChar(c) {
   const s = s0 * c.sm;
   const busy = now < c.busyUntil;
   const alpha = c.leaving ? clamp(1 - (now - c.leaving) / 0.6, 0, 1) : 1;
-  const m = danceOf(c);
+  const ef = effectPose(c);
+  const m = ef.still ? { dx: 0, dy: 0, rot: 0, sx: 1, arms: null, beat: beatPos } : danceOf(c);
   const x = c.x + m.dx * s0;
   const y = c.y - m.dy * s0 - c.jumpY;
   ctx.globalAlpha = alpha;
+  drawEffectWorld(c, x, y, s);
 
   if (c.look?.wings) drawWings(ctx, x, y, s, now);
   if (busy && c.viewer?.tier?.rank >= 1) {
@@ -549,7 +562,6 @@ function drawChar(c) {
   const sp = spriteOf(c);
   const dw = SPRITE_W * s;
   const dh = SPRITE_H * s;
-  const ef = effectPose(c);
   ctx.save();
   if (c.clipY != null) {
     // đứng sau quầy: che phần dưới
@@ -564,14 +576,19 @@ function drawChar(c) {
     ctx.drawImage(sp, -dw / 2, -dh / 2, dw, dh);
   } else {
     ctx.translate(x + ef.dx * s, y - ef.dy * s);
-    ctx.rotate(m.rot);
+    ctx.rotate(m.rot + ef.rot);
     ctx.scale(m.sx * ef.sx, ef.sy);
-    const squash = c.moving ? 0 : (m.dy / 18) * 0.05;
-    ctx.drawImage(sp, (-dw * (1 + squash)) / 2, -dh * (1 - squash) - 2 * s, dw * (1 + squash), dh * (1 - squash));
-    drawArms(ctx, 0, 0, s, c.parts, ef.arms || m.arms, now, c.seed, m.beat);
-    drawEffectOverlay(c, s);
+    if (ef.potato) drawPotato(s, m.dy);
+    else {
+      if (ef.coffin) drawCoffin(s);
+      const squash = c.moving ? 0 : (m.dy / 18) * 0.05;
+      ctx.drawImage(sp, (-dw * (1 + squash)) / 2, -dh * (1 - squash) - 2 * s, dw * (1 + squash), dh * (1 - squash));
+      drawArms(ctx, 0, 0, s, c.parts, ef.arms || m.arms, now, c.seed, m.beat);
+      drawEffectOverlay(c, s);
+    }
   }
   ctx.restore();
+  if (c.shieldUntil > now) drawShield(c, x, y, s);
   if (c.item && now < c.item.until) emoji(c.item.e, x + 26 * s, y - 62 * s, 30 * s);
   ctx.globalAlpha = 1;
 }
@@ -591,6 +608,7 @@ function drawOverlay(c, showTag) {
     y -= th + 4;
   }
   if (c.emote && now < c.emote.until) emoji(c.emote.e, c.x + 30 * s, top + 10 * s, 28 * clamp(s, 0.6, 1.4));
+  if (c.viewer && c.viewer.id === trollLeader()?.id) emoji('🤡', c.x - 30 * s, top + 8 * s, 30 * clamp(s, 0.6, 1.4)); // nạn nhân của đêm
   if (c.bubble && now < c.bubble.until) {
     const lines = wrap(c.bubble.text, 300, 24);
     let bw = 0;
@@ -612,13 +630,54 @@ function drawOverlay(c, showTag) {
 }
 
 // ---------------- Hiệu ứng "bựa" trên nhân vật (đồ uống, bánh kem) ----------------
-const EFFECT_SEC = { hiccup: 4, fire: 3.5, zoom: 4, freeze: 4, rocket: 2.6, sour: 3, hearts: 3, pie: 7 };
+const EFFECT_SEC = {
+  hiccup: 4, fire: 3.5, zoom: 4, freeze: 4, rocket: 2.6, sour: 3, hearts: 3, pie: 7,
+  derp: 8, banana: 4.5, potato: 9, tpose: 6, worm: 6, chicken: 10, noodle: 7, fart: 4.6, coffin: 45,
+};
 
-function applyEffect(c, effect) {
-  const dur = EFFECT_SEC[effect] || 3;
-  c.effect = { type: effect, start: now, until: now + dur, last: 0 };
+function applyEffect(c, effect, opts = {}) {
+  const dur = opts.sec || EFFECT_SEC[effect] || 3;
+  c.effect = { type: effect, start: now, until: now + dur, last: 0, costume: opts.costume || null, dir: Math.random() < 0.5 ? -1 : 1 };
   const top = () => headTop(c);
+  const s = scaleOf(c);
   switch (effect) {
+    case 'derp':
+      w.float(c.x, top() - 50, 'Ơ kìa... 🤪', '#fff59d', 32);
+      break;
+    case 'banana':
+      w.float(c.x, top() - 50, 'Á Á Á!!! 🍌', '#ffee58', 34);
+      break;
+    case 'potato':
+      w.float(c.x, top() - 50, 'BỤP! Thành khoai 🥔', '#d7b98a', 32);
+      fx.sparkBurst(c.x, c.y - 60 * s, { n: 30, color: [230, 200, 140], speed: 260 });
+      for (let i = 0; i < 6; i++) bits.push({ x: c.x + rand(-40, 40) * s, y: c.y - rand(20, 110) * s, vx: rand(-60, 60), vy: rand(-80, -20), life: 0, max: 0.8, e: '💨', size: 30 * s });
+      break;
+    case 'tpose':
+      w.float(c.x, top() - 50, '🧍 T-POSE!', '#80deea', 34);
+      break;
+    case 'worm':
+      w.float(c.x, top() - 50, 'Bò như sâu đo 🪱', '#c5e1a5', 30);
+      break;
+    case 'chicken':
+      w.float(c.x, top() - 50, 'Cục ta cục tác! 🐔', '#ffe082', 32);
+      if (opts.costume) fx.sparkBurst(c.x, c.y - 60 * s, { n: 24, color: [255, 245, 220], speed: 240 });
+      break;
+    case 'noodle':
+      w.float(c.x, top() - 50, 'Tay dẻo như mì 🍜', '#ffcc80', 30);
+      break;
+    case 'fart': {
+      w.float(c.x, top() - 60, 'PỤT!!! 💨', '#b2ff59', 46);
+      // người đứng gần bịt mũi bỏ chạy
+      for (const o of w.chars) {
+        if (o === c || Math.hypot(o.x - c.x, o.y - c.y) > 190 * sceneScale(c.y)) continue;
+        w.emote(o, '🤢', 3000);
+        w.pose(o, 'cheer', 2200);
+        const away = o.x >= c.x ? 1 : -1;
+        w.moveTo(o, clamp(o.x + away * rand(80, 130), 30, W - 30), o.y);
+        setTimeout(() => !o.path && w.goHome(o), 2800);
+      }
+      break;
+    }
     case 'fire':
       w.float(c.x, top() - 50, 'CAY QUÁ!!! 🔥', '#ff7043', 34);
       break;
@@ -653,14 +712,91 @@ function applyEffect(c, effect) {
   }
 }
 
-/** Độ lệch thân + tay theo hiệu ứng đang chạy. */
+/** Độ lệch thân + tay theo hiệu ứng đang chạy. still: tạm dừng điệu nhảy thường. */
 function effectPose(c) {
   const e = c.effect;
-  const out = { dx: 0, dy: 0, sx: 1, sy: 1, arms: null };
+  const out = { dx: 0, dy: 0, rot: 0, sx: 1, sy: 1, arms: null, still: false, potato: false, coffin: false };
   if (!e) return out;
   const t = now - e.start;
-  const p = t / (e.until - e.start);
+  const dur = e.until - e.start;
+  const p = t / dur;
+  const fadeOut = (sec) => 1 - ease(clamp((t - (dur - sec)) / sec, 0, 1));
   switch (e.type) {
+    case 'derp':
+      out.rot = Math.sin(t * 7) * 0.2;
+      out.sy = 1 + Math.sin(t * 14) * 0.05;
+      out.arms = 'noodle';
+      break;
+    case 'noodle':
+      out.rot = Math.sin(t * 5) * 0.16;
+      out.sx = 1 + Math.sin(t * 10) * 0.07;
+      out.dy = Math.abs(Math.sin(t * 5)) * 8;
+      out.arms = 'noodle';
+      out.still = true;
+      break;
+    case 'banana': {
+      // loạng choạng -> bật lên ngã ngửa -> nằm chổng vó -> lồm cồm bò dậy
+      const fall = clamp((t - 0.3) / 0.35, 0, 1);
+      const k = ease(fall) * fadeOut(0.7);
+      out.rot = k * 1.5 * e.dir;
+      out.dx = t < 0.3 ? Math.sin(t * 50) * 5 : 0;
+      out.dy = fall > 0 && fall < 1 ? Math.sin(fall * Math.PI) * 40 : 0;
+      out.arms = k > 0.6 ? 'tpose' : 'cheer';
+      out.still = true;
+      break;
+    }
+    case 'potato':
+      out.potato = true;
+      break;
+    case 'tpose':
+      // cứng đơ, bay lơ lửng, xoay chầm chậm
+      out.dy = Math.sin(clamp(p, 0, 1) * Math.PI) * 170;
+      out.dx = Math.sin(t * 1.6) * 45;
+      out.rot = Math.sin(t * 1.2) * 0.3;
+      out.arms = 'tpose';
+      out.still = true;
+      break;
+    case 'worm': {
+      // nằm sấp, uốn người bò tới bò lui
+      const k = ease(Math.min(1, t / 0.4)) * fadeOut(0.5);
+      const wv = Math.sin(t * 9);
+      out.rot = (Math.PI / 2) * e.dir * k;
+      out.sy = 1 + wv * 0.13 * k;
+      out.dy = Math.max(0, wv) * 10 * k;
+      out.dx = Math.sin(t * 1.4) * 50 * k;
+      out.still = true;
+      break;
+    }
+    case 'chicken': {
+      // mổ thóc: cúi gập người theo nhịp + đập cánh
+      const peck = Math.pow(Math.abs(Math.sin(t * 5)), 6);
+      out.rot = peck * 0.5 * e.dir;
+      out.dy = Math.abs(Math.sin(t * 2.5)) * 8;
+      out.dx = Math.sin(t * 1.3) * 30;
+      out.arms = 'flap';
+      out.still = true;
+      break;
+    }
+    case 'fart':
+      // gồng... rồi phụt bay lên trần như tên lửa
+      if (t < 0.9) {
+        out.dx = Math.sin(t * 70) * 3;
+        out.sy = 1 - 0.1 * Math.abs(Math.sin(t * 18));
+      } else out.dy = Math.sin(Math.min(1, (t - 0.9) / (dur - 0.9)) * Math.PI) * 650;
+      out.rot = t > 0.9 ? Math.sin(t * 20) * 0.15 : 0;
+      out.arms = 'cheer';
+      out.still = true;
+      break;
+    case 'coffin': {
+      // nằm thẳng trong quan tài, được khiêng trên vai
+      const k = ease(Math.min(1, t / 0.6));
+      out.rot = (-Math.PI / 2) * k;
+      out.dy = 172 * k; // giơ cao qua đầu đội khiêng
+      out.dx = 70 * k;
+      out.coffin = true;
+      out.still = true;
+      break;
+    }
     case 'hiccup': {
       const k = (t % 0.9) / 0.9;
       out.dy = k < 0.25 ? Math.sin((k / 0.25) * Math.PI) * 16 : 0;
@@ -711,10 +847,130 @@ function updateEffect(c, dt) {
   } else if (e.type === 'freeze' && e.last > 0.15) {
     e.last = 0;
     bits.push({ x: c.x + rand(-50, 50) * s, y: headTop(c) - 30, vx: rand(-20, 20), vy: rand(40, 90), life: 0, max: 1.4, e: '❄️', size: 20 * s * 1.3 });
-  } else if (e.type === 'rocket' && t > 0.5 && e.last > 0.04) {
+  } else if (((e.type === 'rocket' && t > 0.5) || (e.type === 'fart' && t > 0.9)) && e.last > 0.04) {
     e.last = 0;
     const fy = c.y - effectPose(c).dy * s;
     bits.push({ x: c.x + rand(-10, 10) * s, y: fy, vx: rand(-40, 40), vy: rand(80, 180), life: 0, max: 0.7, e: '💨', size: 26 * s * 1.3 });
+  } else if (e.type === 'chicken' && e.last > 0.5) {
+    e.last = 0;
+    bits.push({ x: c.x + rand(-30, 30) * s, y: c.y - 70 * s, vx: rand(-50, 50), vy: rand(-90, -30), life: 0, max: 1.1, e: '🪶', size: 20 * s * 1.3 });
+  } else if (e.type === 'derp' && e.last > 1.2) {
+    e.last = 0;
+    w.float(c.x + rand(-30, 30) * s, headTop(c) - 20, ['hơ hơ', 'ơ?', 'é é', 'hihi 🤪'][Math.floor(rand(0, 4))], '#fff59d', 24);
+  }
+}
+
+/** Mắt lồi kiểu đồ chơi, con ngươi lắc lư (lác hoặc đảo lung tung). */
+function googly(x, y, r, cross) {
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = Math.max(1, r * 0.18);
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  const a = now * 11 + x;
+  const px = x + (cross * 0.45 + Math.sin(a) * 0.2) * r;
+  const py = y + (0.15 + Math.cos(a * 1.3) * 0.25) * r;
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.arc(px, py, r * 0.45, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** Củ khoai tây có mắt (trò troll "Hoá khoai tây"), vẫn nhún theo nhạc. */
+function drawPotato(s, bounce) {
+  const sq = (bounce / 18) * 0.08;
+  ctx.fillStyle = 'rgba(0,0,0,.3)';
+  ctx.beginPath();
+  ctx.ellipse(0, -2 * s, 26 * s, 5 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.save();
+  ctx.scale(1 + sq, 1 - sq);
+  ctx.fillStyle = '#c99a5b';
+  ctx.strokeStyle = '#8a6232';
+  ctx.lineWidth = 2.5 * s;
+  ctx.beginPath();
+  ctx.ellipse(0, -50 * s, 32 * s, 46 * s, 0.18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(120,80,35,.55)';
+  for (const [dx, dy, r] of [[-14, -78, 3], [12, -28, 3.5], [16, -66, 2.5], [-10, -22, 2.5], [-20, -48, 2]]) {
+    ctx.beginPath();
+    ctx.arc(dx * s, dy * s, r * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  googly(-10 * s, -62 * s, 9 * s, 1);
+  googly(11 * s, -60 * s, 9 * s, -1);
+  ctx.strokeStyle = '#5d3a17';
+  ctx.lineWidth = 2.5 * s;
+  ctx.beginPath();
+  ctx.arc(0, -42 * s, 7 * s, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Quan tài (vẽ dưới nhân vật đang nằm). */
+function drawCoffin(s) {
+  ctx.fillStyle = '#4e342e';
+  ctx.strokeStyle = '#a1887f';
+  ctx.lineWidth = 3 * s;
+  ctx.beginPath();
+  ctx.moveTo(-26 * s, 4 * s);
+  ctx.lineTo(26 * s, 4 * s);
+  ctx.lineTo(40 * s, -100 * s);
+  ctx.lineTo(28 * s, -150 * s);
+  ctx.lineTo(-28 * s, -150 * s);
+  ctx.lineTo(-40 * s, -100 * s);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#ffd54f';
+  ctx.fillRect(-2 * s, -128 * s, 4 * s, 22 * s);
+  ctx.fillRect(-9 * s, -121 * s, 18 * s, 4 * s);
+}
+
+/** Khiên chống troll: bong bóng xanh bao quanh nhân vật. */
+function drawShield(c, x, y, s) {
+  const r = 82 * s;
+  const cy = y - 62 * s;
+  const pulse = 1 + Math.sin(now * 4) * 0.03;
+  const g = ctx.createRadialGradient(x, cy, r * 0.6, x, cy, r * pulse);
+  g.addColorStop(0, 'rgba(100,220,255,0)');
+  g.addColorStop(1, 'rgba(100,220,255,0.35)');
+  ctx.fillStyle = g;
+  ctx.strokeStyle = `rgba(160,240,255,${0.6 + Math.sin(now * 6) * 0.2})`;
+  ctx.lineWidth = 3 * s;
+  ctx.beginPath();
+  ctx.arc(x, cy, r * pulse, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath();
+  ctx.ellipse(x - r * 0.4, cy - r * 0.45, r * 0.18, r * 0.09, -0.6, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** Vẽ theo toạ độ thật (không xoay theo người): vỏ chuối dưới chân, mây xì hơi. */
+function drawEffectWorld(c, x, y, s) {
+  const e = c.effect;
+  if (!e) return;
+  const t = now - e.start;
+  if (e.type === 'banana') {
+    emoji('🍌', c.x - e.dir * 34 * s, c.y - 6 * s, 34 * s);
+  } else if (e.type === 'fart') {
+    const a = clamp(1 - t / (e.until - e.start), 0, 1);
+    ctx.save();
+    ctx.globalAlpha *= a * 0.55;
+    ctx.fillStyle = '#9ccc65';
+    for (let i = 0; i < 7; i++) {
+      const ang = (i / 7) * Math.PI * 2 + c.seed * 5;
+      const rr = (30 + Math.min(1, t / 1.2) * 90) * s;
+      ctx.beginPath();
+      ctx.arc(c.x + Math.cos(ang) * rr * 0.9, c.y - 30 * s + Math.sin(ang) * rr * 0.35, (26 + i * 3) * s * (0.6 + Math.min(1, t)), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 }
 
@@ -723,6 +979,19 @@ function drawEffectOverlay(c, s) {
   const e = c.effect;
   if (!e) return;
   const hy = -(FOOT_Y - HEAD_Y) * s;
+  if (e.type === 'derp') {
+    // mắt lồi lác + thè lưỡi (dán đè lên cả ảnh đại diện)
+    googly(-11 * s, hy - 2 * s, 10 * s, 1);
+    googly(11 * s, hy - 2 * s, 10 * s, -1);
+    ctx.fillStyle = '#ff6f91';
+    ctx.strokeStyle = '#c2185b';
+    ctx.lineWidth = 1.5 * s;
+    ctx.beginPath();
+    ctx.roundRect(-5 * s + Math.sin(now * 9) * 3 * s, hy + 13 * s, 10 * s, (13 + Math.sin(now * 6) * 3) * s, [2 * s, 2 * s, 6 * s, 6 * s]);
+    ctx.fill();
+    ctx.stroke();
+    return;
+  }
   if (e.type === 'fire') {
     ctx.fillStyle = `rgba(255,40,20,${0.35 + 0.15 * Math.sin(now * 20)})`;
     ctx.beginPath();
@@ -1013,6 +1282,7 @@ const defaults = {
     w.banner(`🎵 ${a.data.song.title}`, { sub: a.user ? `do ${a.user.name} chọn` : a.data.song.artist || '', color: '#ce93d8', ms: 3500 });
     w.fx.wash({ color: [170, 80, 255], ms: 2500, alpha: 0.15 });
     if (a.user) w.pose(w.charFor(a.user, 4000), 'cheer', 3000);
+    if (scene.soloOnSong !== false && state.features?.troll) setTimeout(soloTroll, 4000);
   },
 
   // ---- Dancer ----
@@ -1067,11 +1337,166 @@ const defaults = {
     return 7000;
   },
 
+  // ---- Troll bạn bè ----
+  troll(w, a) {
+    const trick = a.data.trick;
+    const from = w.charFor(a.user, 7000);
+    const hit = (c) => {
+      w.charFor(c.viewer, 9000);
+      if (trick.id === 'coffin') return w.coffinDance(c);
+      w.drinkEffect(c, trick.id, { costume: trick.id === 'chicken' ? 'chicken' : null });
+      w.emote(c, '😵', 2500);
+    };
+    if (a.data.bounced) {
+      // khiên dội ngược: đồ troll bay tới, bật lại trúng chính người troll
+      const sh = w.charFor(a.data.shield, 7000);
+      w.banner(`🛡️ ${a.data.shield.name} dội ngược!`, { sub: `${a.user.name} tự dính ${trick.emoji} ${trick.name} 😂`, color: '#80deea', ms: 4000 });
+      w.fly(trick.emoji, chest(from), chest(sh), { size: 60, arc: 200, ms: 900, onArrive: () => {
+        fx.sparkBurst(chest(sh).x, chest(sh).y, { n: 36, color: [140, 230, 255], speed: 380 });
+        w.float(sh.x, headTop(sh) - 40, '🛡️ BOING!', '#80deea', 34);
+        w.emote(sh, '😎', 3000);
+        w.fly(trick.emoji, chest(sh), chest(from), { size: 60, arc: 160, ms: 800, onArrive: () => hit(from) });
+      } });
+      return 4000;
+    }
+    const to = w.charFor(a.data.to, 9000);
+    w.pose(from, 'point', 1500);
+    w.emote(from, '😈', 3000);
+    w.banner(`🤡 ${a.user.name} troll ${a.data.to.name}`, { sub: `${trick.emoji} ${trick.name}`, color: '#ff8a65', ms: 3800, big: trick.id === 'coffin' });
+    if (trick.id === 'coffin') hit(to);
+    else w.fly(trick.emoji, chest(from), { x: to.x, y: trick.id === 'banana' ? to.y : chest(to).y }, { size: 60, arc: 240, ms: 900, onArrive: () => hit(to) });
+    return trick.id === 'coffin' ? 9000 : 4000;
+  },
+  troll_shield(w, a) {
+    const c = w.charFor(a.user, 4000);
+    c.shieldUntil = now + (a.data.sec || 120);
+    w.fx.halo(at(c), { color: [120, 220, 255] });
+    w.float(c.x, headTop(c) - 40, `🛡️ Khiên chống troll ${a.data.sec}s`, '#80deea', 28);
+  },
+  troll_armed(w, a) {
+    const c = w.charFor(a.user, 3500);
+    w.float(c.x, headTop(c) - 40, `🎯 Nhắm ${a.data.to.name} rồi, tặng quà để troll!`, '#ff8a65', 24);
+    w.emote(c, '😏', 3000);
+  },
+  troll_hint(w, a) {
+    const c = w.charFor(a.user, 3000);
+    w.float(c.x, headTop(c) - 40, a.data.kind === 'shield' ? 'Tặng quà để bật khiên 🛡️' : 'Tặng quà rồi !troll <tên> 🤡', '#80deea', 24);
+  },
+  troll_notfound(w, a) {
+    const c = w.charFor(a.user, 3000);
+    w.float(c.x, headTop(c) - 40, `Không thấy "${a.data.text}" trong quán 🤔`, '#b0bec5', 24);
+  },
+  troll_help(w, a) {
+    if (a.user) w.charFor(a.user, 2500);
+    const list = (a.data.tricks || []).map((t) => `${t.emoji} ${t.name}`).join(' · ');
+    w.banner('🤡 !troll <tên> rồi tặng quà (quà càng to càng nặng)', { sub: list, color: '#ff8a65', ms: 6000 });
+  },
+  troll_dance(w, a) {
+    const c = w.charFor(a.user, 6000);
+    w.drinkEffect(c, a.data.dance.effect || a.data.dance.id);
+  },
+  troll_dance_list(w, a) {
+    if (a.user) w.charFor(a.user, 2500);
+    w.banner('🕺 Gõ !nhay <điệu> (miễn phí)', { sub: (a.data.list || []).map((d) => `${d.emoji} ${d.id}`).join(' · '), color: '#ffcc80', ms: 5000 });
+  },
+  troll_wait(w, a) {
+    const c = w.charFor(a.user, 2500);
+    w.float(c.x, headTop(c) - 40, `⏳ ${a.data.waitSec}s nữa mới nhảy tiếp được`, '#b0bec5', 24);
+  },
+  troll_top(w, a) {
+    const c = w.charFor(a.user, 6000);
+    w.emote(c, '🤡', 5000);
+    w.fx.beam(at(c), { ms: 4000, color: [255, 120, 90] });
+    w.banner(`🤡 Nạn nhân của đêm: ${a.user.name}`, { sub: `Bị troll ${a.data.n} lần rồi 😂`, color: '#ff8a65', ms: 4500 });
+  },
+
   unknown(w, a) {
     const c = a.user && w.charFor(a.user, 3000);
     if (c) w.float(c.x, headTop(c) - 40, a.data?.cmd?.label || a.action);
   },
 };
+
+/** Người đứng đầu bảng "Nạn nhân của đêm" (bị troll từ 2 lần). */
+function trollLeader() {
+  const v = state.features?.troll?.top?.[0];
+  return v && v.n >= 2 ? v : null;
+}
+
+// Đội khiêng quan tài: 4 người vest đen kính râm ra tận nơi, khiêng nạn nhân đi một vòng quán rồi trả về chỗ.
+let bearerSeq = 0;
+const SUIT = { outfit: '#16161c', outfit2: '#f5f5f5', shirt: 'collar', bowtie: '#16161c', accessory: 'shades', pants: '#16161c', hairStyle: 'short' };
+function coffinDance(c) {
+  if (c.effect?.type === 'coffin') return; // đang được khiêng rồi
+  const id = ++bearerSeq;
+  const ent = scene.entrance || { x: W / 2, y: H + 60 };
+  // diễu ở giữa sàn phía trước (scene có thể đặt paradePath riêng), to hơn người thường cho dễ thấy
+  const fy = Math.min(floorY() - 60, H - 260);
+  const route = scene.paradePath || [
+    { x: W * 0.5, y: fy },
+    { x: W * 0.24, y: fy - 30 },
+    { x: W * 0.36, y: fy - 150 },
+    { x: W * 0.6, y: fy - 170 },
+    { x: W * 0.68, y: fy - 40 },
+    { x: W * 0.4, y: fy + 20 },
+    { x: W * 0.5, y: fy },
+  ];
+  const GROW = 1.45;
+  const k = sceneScale(fy) * GROW;
+  const offs = [-84, -30, 30, 84].map((d) => d * k);
+  const bearers = offs.map((dx, i) =>
+    w.npc(`bearer:${id}:${i}`, { x: ent.x + i * 40, y: ent.y, scale: GROW, style: 900 + i, parts: SUIT }),
+  );
+  c.busyUntil = now + 40;
+  w.emote(c, '😱', 4000);
+  w.say(c, 'Ơ ơ... tôi còn sống mà!!!', 3500);
+  const dismiss = () => {
+    for (const b of bearers) {
+      if (!chars.has(b.id)) continue;
+      b.pose = null;
+      w.walk(b, [ent], { speed: 1.5, onDone: () => removeChar(b) });
+    }
+  };
+  let arrived = 0;
+  const start = () => {
+    applyEffect(c, 'coffin');
+    c.effect.grow = GROW;
+    w.fx.wash({ color: [40, 40, 60], ms: 3000, alpha: 0.25 });
+    w.camera(c, 6000);
+    for (const b of bearers) w.pose(b, 'carry', 60000);
+    const pts = route.slice(1);
+    w.walk(c, pts, { speed: 0.36, onDone: () => {
+      c.effect = null;
+      w.pose(c, 'cheer', 2500);
+      w.float(c.x, headTop(c) - 40, 'Sống lại rồi!!! 😂', '#fff', 30);
+      dismiss();
+      setTimeout(() => !c.path && w.goHome(c), 2500);
+    } });
+    // cùng tốc độ + đường đi dời đúng một khoảng -> luôn đi khít dưới quan tài
+    bearers.forEach((b, i) => w.walk(b, pts.map((p) => ({ x: p.x + offs[i], y: p.y + 6 })), { speed: 0.36 }));
+  };
+  // cả nạn nhân lẫn đội khiêng ra giữa sàn, đủ mặt thì nhấc lên
+  const meet = () => ++arrived === bearers.length + 1 && start();
+  w.walk(c, [route[0]], { speed: 1.2, onDone: meet });
+  bearers.forEach((b, i) => w.walk(b, [{ x: route[0].x + offs[i], y: route[0].y + 6 }], { speed: 1.7, onDone: meet }));
+  setTimeout(() => {
+    // phòng khi nạn nhân rời quán giữa chừng
+    if (c.effect?.type === 'coffin') c.effect = null;
+    dismiss();
+  }, 50000);
+}
+
+/** Đổi bài: đèn rọi một người ngẫu nhiên lên "solo" một điệu troll. */
+function soloTroll() {
+  const free = w.chars.filter((c) => !c.effect && now >= c.busyUntil);
+  const c = free[Math.floor(Math.random() * free.length)];
+  if (!c) return;
+  const moves = ['chicken', 'worm', 'tpose', 'derp', 'noodle'];
+  const move = moves[Math.floor(Math.random() * moves.length)];
+  w.charFor(c.viewer, 6000);
+  applyEffect(c, move, { sec: 6 });
+  w.fx.beam(at(c), { ms: 6000, color: [255, 240, 200], width: 170 });
+  w.banner(`🎤 Solo troll: ${c.viewer.name}!`, { color: '#ffcc80', ms: 3500 });
+}
 
 function defaultWalkPath() {
   const xs = spots.map((s) => s.x);
@@ -1300,14 +1725,19 @@ function drawHud() {
     ctx.fill();
   }
   drawGoal();
+  const lead = state.location && trollLeader();
+  if (lead) {
+    pill(40, 202, 470, 46, 'rgba(0,0,0,.55)');
+    text(`🤡 Nạn nhân của đêm: ${lead.name} (${lead.n})`, 58, 226, { size: 24, align: 'left', color: '#ffab91', stroke: null, maxWidth: 440 });
+  }
   if (audioBlocked && audioSong) {
     pill(W / 2 - 250, 1840, 500, 54, 'rgba(0,0,0,.7)');
     text('🔇 Bấm vào màn hình để bật nhạc', W / 2, 1867, { size: 26, stroke: null });
   }
   if (cam.target && cam.z > 1.3) {
     const name = cam.target.viewer?.name || '';
-    pill(W / 2 - 230, 210, 460, 60, 'rgba(229,57,53,.85)');
-    text(`🎥 Camera: ${name}`, W / 2, 241, { size: 30, stroke: null, maxWidth: 430 });
+    pill(W / 2 - 230, 262, 460, 60, 'rgba(229,57,53,.85)');
+    text(`🎥 Camera: ${name}`, W / 2, 293, { size: 30, stroke: null, maxWidth: 430 });
   }
 }
 
@@ -1478,7 +1908,7 @@ function frame(ts) {
     scene.foreground?.(ctx, w);
     const all = list.length <= SHOW_ALL_TAGS_UNDER;
     for (const c of list) {
-      const show = c.npc ? Boolean(c.label) : all || now < c.busyUntil || c.viewer?.tier?.rank >= 2 || c.look?.wings || c === cam.target;
+      const show = c.npc ? Boolean(c.label) : all || now < c.busyUntil || c.viewer?.tier?.rank >= 2 || c.look?.wings || c === cam.target || c.viewer?.id === trollLeader()?.id;
       if (show || c.bubble || c.emote) drawOverlay(c, show);
     }
     fx.update(dt);

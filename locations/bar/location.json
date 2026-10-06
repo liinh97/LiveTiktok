@@ -293,6 +293,115 @@
       "target": 300,
       "growBy": 0.25,
       "reward": "tower"
+    },
+    "troll": {
+      "_ghi_chu": "!troll <tên> + tặng quà: troll người đó (quà càng to trò càng nặng, minCoins = số xu tối thiểu). !khien + tặng quà: khiên chống troll (dội ngược). !nhay <điệu>: tự nhảy điệu troll miễn phí. effect của dances: chicken | worm | tpose | derp | noodle.",
+      "creditSec": 90,
+      "shieldSec": 120,
+      "selfCooldownSec": 45,
+      "tricks": [
+        {
+          "id": "banana",
+          "name": "Vỏ chuối",
+          "emoji": "🍌",
+          "minCoins": 1
+        },
+        {
+          "id": "derp",
+          "name": "Mặt ngáo",
+          "emoji": "🤪",
+          "minCoins": 1
+        },
+        {
+          "id": "potato",
+          "name": "Hoá khoai tây",
+          "emoji": "🥔",
+          "minCoins": 1
+        },
+        {
+          "id": "tpose",
+          "name": "T-pose bay lơ lửng",
+          "emoji": "🧍",
+          "minCoins": 5
+        },
+        {
+          "id": "worm",
+          "name": "Sâu đo bò sàn",
+          "emoji": "🪱",
+          "minCoins": 5
+        },
+        {
+          "id": "chicken",
+          "name": "Hoá gà mổ thóc",
+          "emoji": "🐔",
+          "minCoins": 20
+        },
+        {
+          "id": "fart",
+          "name": "Xì hơi tên lửa",
+          "emoji": "💨",
+          "minCoins": 30
+        },
+        {
+          "id": "coffin",
+          "name": "Khiêng quan tài",
+          "emoji": "⚰️",
+          "minCoins": 99
+        }
+      ],
+      "dances": [
+        {
+          "id": "ga",
+          "name": "Gà mổ thóc",
+          "emoji": "🐔",
+          "effect": "chicken",
+          "aliases": [
+            "gà",
+            "con ga"
+          ]
+        },
+        {
+          "id": "sau",
+          "name": "Sâu đo",
+          "emoji": "🪱",
+          "effect": "worm",
+          "aliases": [
+            "sâu",
+            "sau do"
+          ]
+        },
+        {
+          "id": "tpose",
+          "name": "T-pose",
+          "emoji": "🧍",
+          "effect": "tpose",
+          "aliases": [
+            "t pose",
+            "t"
+          ]
+        },
+        {
+          "id": "ngao",
+          "name": "Mặt ngáo",
+          "emoji": "🤪",
+          "effect": "derp",
+          "aliases": [
+            "ngáo",
+            "derp"
+          ]
+        },
+        {
+          "id": "deo",
+          "name": "Tay dẻo",
+          "emoji": "🙆",
+          "effect": "noodle",
+          "aliases": [
+            "dẻo",
+            "tay deo",
+            "mi"
+          ]
+        }
+      ]
     }
   }
 }

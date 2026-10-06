@@ -98,7 +98,6 @@ Một số nguyên tắc:
   | Perfume | Camera zoom vào nhân vật |
   | Doughnut | Đổi nhân vật |
   | Hand Hearts | Huy hiệu + cánh |
-
   | Corgi | Gọi dancer linh vật (🐔 Gà Quay, 🦖 Khủng Long, 🐻 Gấu Béo) xuống nhảy trước mặt |
 
   **Khán giả tương tác bằng bình luận** (cấu hình ở `features` trong `locations/bar/location.json`, xử lý ở `src/features/`):
@@ -111,7 +110,13 @@ Một số nguyên tắc:
   | `!nem <tên>` | (sau khi tặng quà) ném bánh kem vào mặt người khác 🥧 |
   | `!baihat` · `!nhac <số>` · `!vote <số>` | Xem danh sách, chọn bài, bầu bài; tặng quà ≥ 30 xu rồi `!nhac` để chen lên đầu |
   | `!dancer <tên>` | Chọn dancer trước khi tặng quà gọi dancer |
+  | `!troll <tên>` + tặng quà | Troll người khác (gõ trước hay tặng trước đều được, mỗi lần tặng 1 lần troll). Quà càng to trò càng nặng: 1 xu 🍌 vỏ chuối / 🤪 mặt ngáo / 🥔 hoá khoai tây · 5 xu 🧍 T-pose bay lơ lửng / 🪱 sâu đo · 20 xu 🐔 hoá gà mổ thóc · 30 xu 💨 xì hơi tên lửa (người xung quanh bịt mũi bỏ chạy) · 99 xu ⚰️ đội vest đen ra khiêng quan tài diễu quanh sàn |
+  | `!khien` + tặng quà | Khiên chống troll 2 phút: ai troll vào bị **dội ngược** dính chính trò của mình |
+  | `!nhay <điệu>` | Miễn phí, tự nhảy điệu troll: `ga` · `sau` · `tpose` · `ngao` · `deo` (mỗi người 1 lần / 45 giây) |
 
+  **Nạn nhân của đêm** 🤡: ai bị troll nhiều nhất trong ngày được đội mũ hề và hiện tên ở góc trên.
+  **Solo troll**: mỗi lần đổi bài, đèn rọi một người ngẫu nhiên lên nhảy một điệu troll.
+  Danh sách trò, số xu, thời gian khiên chỉnh ở `features.troll`. Trò troll là nhân vật tự vẽ, không dùng hình meme hay nhạc có bản quyền.
   **Mục tiêu chung** "Tháp trà sữa cả quán": mọi quà cộng dồn, đủ thì cả quán được trà sữa + pháo sáng + kim tuyến, mục tiêu tăng dần.
   **Màn LED** sau quầy hiện bài đang phát, hàng chờ nhạc, đơn đang pha và chữ chạy hướng dẫn lệnh.
   **Nhạc**: thả file vào `locations/bar/music/` (xem README trong đó), sửa danh sách ở `features.music.playlist`, rồi `docker compose restart`.
@@ -153,6 +158,7 @@ Hệ thống sẽ báo khi: mất kết nối hoặc kênh chưa live trong gi�
 
 ## Chưa làm
 
+- Bảng "Nạn nhân của đêm" chỉ giữ trong bộ nhớ: khởi động lại máy chủ giữa buổi live thì bảng đếm lại từ đầu.
 - Nguồn dự phòng **bằng trình duyệt** (Playwright mở trang live, tự bắt dữ liệu, không cần Euler). Lớp nguồn đã sẵn chỗ để cắm vào qua `sources.fallback`.
 - Nội dung thật cho các loại hình live.
 - Đọc tên bằng dịch vụ TTS tiếng Việt chất lượng cao. Giọng của trình duyệt trong OBS có thể không có tiếng Việt.
