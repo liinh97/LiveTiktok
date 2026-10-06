@@ -17,6 +17,7 @@
 //     charHeight?: number         chiều cao nhân vật (px, chưa nhân tỉ lệ) để đặt thẻ tên trên đầu
 //     drawBody?(ctx, w, c, o)     tự vẽ thân nhân vật; o = { x, y, s (tỉ lệ), lit (màu viền khi đang diễn | null) }
 //     wander?(w, c) -> {x,y}|null đi loanh quanh (null = đứng yên)
+//     update?(w, dt)              gọi mỗi khung hình (vd. cho đám đông tự cử động)
 //     stageFloorY?: number        độ cao sàn để đặt pháo sáng / khói (mặc định 1500)
 //     actions?: { tên(w, a, d) }  diễn hành động theo kiểu riêng; d = bộ hành động mặc định
 //     maxChars?: number           số nhân vật (mặc định 24)
@@ -738,6 +739,7 @@ function frame(ts) {
     scene.background(ctx, w);
     fx.draw('under');
     updateChars(dt);
+    scene.update?.(w, dt);
     const list = [...chars.values()].sort((a, b) => a.y - b.y);
     for (const c of list) drawChar(c);
     scene.foreground?.(ctx, w);
