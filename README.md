@@ -13,7 +13,41 @@ Nguồn sự kiện ──▶ Lõi xử lý ──▶ Trang hiển thị (OBS) �
                      └─ bảng điều khiển (điện thoại)
 ```
 
-## Chạy thử (không cần live thật)
+## Chạy bằng Docker (khuyên dùng)
+
+Chỉ cần cài Docker (trên Windows/Mac là Docker Desktop), không phải cài Node hay thư viện gì.
+
+```bash
+cp .env.example .env        # điền thông tin (xem bên dưới)
+docker compose up -d --build
+```
+
+Sau đó mở:
+- Trang hiển thị: http://localhost:3000/world/ (thêm `?tts=1` để đọc tên bằng giọng nói của trình duyệt)
+- Bảng điều khiển: http://localhost:3000/dashboard/
+
+Các lệnh hay dùng:
+
+| Việc | Lệnh |
+|---|---|
+| Xem log | `docker compose logs -f` |
+| Áp dụng thay đổi trong `config/` hoặc `locations/` | `docker compose restart` (không cần build lại) |
+| Cập nhật code mới | `git pull && docker compose up -d --build` |
+| Dừng | `docker compose down` (dữ liệu vẫn được giữ trong volume `live-data`) |
+
+Container tự chạy lại khi lỗi hoặc khi máy khởi động lại (`restart: unless-stopped`), và có kiểm tra sức khoẻ qua `/health`.
+
+### Chạy với TikTok thật
+
+1. Trong `.env`, điền:
+   - `LIVE_SOURCE=tiktok`
+   - `TIKTOK_USERNAME=...`
+   - `EULER_API_KEY` (để trống thì dùng hạn mức miễn phí)
+2. Chạy `docker compose up -d`.
+3. Trong OBS, thêm **Browser Source** với URL `http://localhost:3000/world/`, kích thước **1080×1920**.
+4. Nên chừa phần dưới màn hình: trên app TikTok, khung bình luận sẽ che vùng đó.
+
+### Chạy không dùng Docker (khi phát triển)
 
 Cần Node.js 22.13 trở lên.
 
@@ -22,20 +56,6 @@ npm install
 npm run sim      # chạy với nguồn GIẢ LẬP
 npm test         # chạy kiểm thử
 ```
-
-Sau đó mở:
-- Trang hiển thị: http://localhost:3000/world/ (thêm `?tts=1` để đọc tên bằng giọng nói của trình duyệt)
-- Bảng điều khiển: http://localhost:3000/dashboard/
-
-## Chạy với TikTok thật
-
-1. Sao chép `.env.example` thành `.env`, rồi điền:
-   - `LIVE_SOURCE=tiktok`
-   - `TIKTOK_USERNAME=...`
-   - `EULER_API_KEY` (để trống thì dùng hạn mức miễn phí)
-2. `npm start`. Nên chạy bằng pm2 (file `ecosystem.config.cjs`) để tự khởi động lại khi lỗi.
-3. Trong OBS, thêm **Browser Source** với URL `http://localhost:3000/world/`, kích thước **1080×1920**.
-4. Nên chừa phần dưới màn hình: trên app TikTok, khung bình luận sẽ che vùng đó.
 
 ## Các phần của lõi
 
@@ -53,7 +73,7 @@ Sau đó mở:
 | Lọc nội dung | `src/core/filter.js`, `config/banned-words.txt` | Tên hoặc bình luận có từ cấm, link, số điện thoại quảng cáo. Danh sách chặn. |
 | Canh chừng | `src/core/watchdog.js` | Báo khi mất nguồn trong giờ mở cửa, khi lâu không có sự kiện, khi không có trang hiển thị |
 | Báo động | `src/notify/` | Hiện trên bảng điều khiển + Telegram, có thời gian chờ để không spam |
-| Máy chủ | `src/server/` | Trang hiển thị, bảng điều khiển, API, proxy ảnh đại diện |
+| Máy chủ | `src/server/` | Trang hiển thị, bảng điều khiển, API, proxy ảnh đại diện, `/health` |
 | Engine hiển thị | `public/world/engine.js` | Tải cảnh theo địa điểm, chuyển cảnh, xếp hàng hiệu ứng lớn, nhân vật, hiệu ứng cơ bản |
 
 Một số nguyên tắc:

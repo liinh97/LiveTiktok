@@ -1,0 +1,22 @@
+# Chạy:   docker compose up -d --build
+# Xem log: docker compose logs -f
+# Dừng:   docker compose down          (dữ liệu vẫn giữ trong volume live-data)
+services:
+  live-world:
+    build: .
+    container_name: live-world
+    restart: unless-stopped # tự chạy lại khi lỗi / khi máy khởi động lại
+    init: true # chuyển tín hiệu tắt cho Node để tắt gọn gàng
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - live-data:/app/data # dữ liệu người xem, quà, ca live
+      # Sửa cấu hình / thêm địa điểm không cần build lại, chỉ cần: docker compose restart
+      - ./config:/app/config:ro
+      - ./locations:/app/locations:ro
+
+volumes:
+  live-data:

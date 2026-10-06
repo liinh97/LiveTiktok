@@ -33,6 +33,7 @@ export function createHttpServer({ config, api }) {
       const p = decodeURIComponent(url.pathname);
 
       if (p === '/') return redirect(res, '/dashboard/');
+      if (p === '/health') return json(res, 200, { ok: true });
       if (p === '/world' || p === '/dashboard') return redirect(res, `${p}/${url.search}`);
       if (p === '/avatar') return avatars.serve(url.searchParams.get('u'), res);
       if (p.startsWith('/api/')) return handleApi(req, res, url, p.slice(5), config, api);
