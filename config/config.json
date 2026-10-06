@@ -1,0 +1,56 @@
+{
+  "port": 3000,
+  "host": "0.0.0.0",
+  "worldName": "Phố Vui",
+  "timezone": "Asia/Ho_Chi_Minh",
+  "dataDir": "data",
+  "vndPerCoin": 125,
+
+  "sources": {
+    "primary": "simulator",
+    "fallback": null,
+    "failuresBeforeSwitch": 3,
+    "tiktok": { "username": "", "signApiKey": "" },
+    "simulator": { "eventsPerSecond": 2 }
+  },
+
+  "tiers": [
+    { "minCoins": 0, "id": "guest", "name": "Khách", "color": "#9aa0a6" },
+    { "minCoins": 100, "id": "regular", "name": "Khách quen", "color": "#66bb6a" },
+    { "minCoins": 1000, "id": "silver", "name": "VIP Bạc", "color": "#cfd8dc" },
+    { "minCoins": 5000, "id": "gold", "name": "VIP Vàng", "color": "#ffca28" },
+    { "minCoins": 20000, "id": "diamond", "name": "VIP Kim cương", "color": "#4fc3f7" }
+  ],
+
+  "pipeline": {
+    "dedupeSize": 5000,
+    "likeThrottleSec": 10,
+    "joinsPerSecond": 3,
+    "crowdFlushMs": 2000
+  },
+
+  "filter": {
+    "bannedWordsFile": "config/banned-words.txt",
+    "maskedName": "Khách bí ẩn",
+    "blockLinks": true,
+    "alertAfterHits": 3
+  },
+
+  "watchdog": {
+    "checkEverySec": 15,
+    "sourceDownAlertSec": 120,
+    "silentAlertSec": 180,
+    "noWorldAlertSec": 60
+  },
+
+  "alerts": {
+    "cooldownSec": 600,
+    "bigGiftCoins": 1000
+  },
+
+  "telegram": { "botToken": "", "chatId": "" },
+
+  "avatarHosts": ["tiktokcdn.com", "tiktokcdn-us.com", "tiktokcdn-eu.com", "ibyteimg.com", "byteimg.com", "muscdn.com"],
+
+  "dashboardToken": ""
+}

@@ -1,0 +1,19 @@
+{
+  "_ghi_chu": "Luật mặc định cho mọi địa điểm. locations/<id>/location.json có thể ghi đè từng mục (join, like, follow, share, chat, gift). Xem giải thích các trường ở đầu src/core/rules.js",
+
+  "join": { "action": "enter", "say": "Chào mừng {tier} {name}!", "sayMinTier": "silver" },
+  "like": { "action": "cheer" },
+  "follow": { "action": "follow", "priority": 1, "say": "Cảm ơn {name} đã theo dõi!" },
+  "share": { "action": "share", "priority": 1, "say": "Cảm ơn {name} đã chia sẻ!" },
+
+  "chat": [
+    { "action": "chat" }
+  ],
+
+  "gift": [
+    { "minCoins": 1, "action": "gift_small", "priority": 1, "say": "Cảm ơn {name} đã tặng {count} {gift}!" },
+    { "minCoins": 30, "action": "gift_medium", "priority": 2, "say": "Cảm ơn {name} đã tặng {count} {gift}!" },
+    { "minCoins": 500, "action": "gift_big", "priority": 3, "say": "Wow! Cảm ơn {name} đã tặng {gift}!" },
+    { "minCoins": 5000, "action": "gift_huge", "priority": 4, "say": "Cảm ơn {name} rất nhiều!" }
+  ]
+}

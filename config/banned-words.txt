@@ -1,0 +1,31 @@
+# Mỗi dòng một từ/cụm từ cấm. Dòng bắt đầu bằng # là ghi chú.
+# - Từ CÓ dấu: so khớp trên chữ gốc (không bị nhầm "lớn" với từ có dấu khác).
+# - Từ KHÔNG dấu: so khớp nguyên từ trên chữ đã bỏ dấu (bắt được kiểu gõ không dấu / viết tắt).
+# Tên người xem chứa từ cấm sẽ bị thay bằng "Khách bí ẩn"; bình luận chứa từ cấm sẽ không hiện lên.
+
+# Chửi thề, viết tắt phổ biến
+đm
+đmm
+dm
+dmm
+dcm
+vl
+vcl
+vkl
+clgt
+cmm
+địt
+đụ
+lồn
+cặc
+buồi
+đéo
+óc chó
+
+# Quảng cáo cờ bạc / lừa đảo hay gặp trên live
+tài xỉu
+nhà cái
+nổ hũ
+cá độ
+lô đề
+kiếm tiền online

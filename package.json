@@ -1,0 +1,21 @@
+{
+  "name": "live-world",
+  "version": "0.1.0",
+  "description": "Thế giới chung cho live TikTok tương tác: nhận quà/bình luận, hiệu ứng theo chủ đề, lập lịch, tự phục hồi, báo động.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/index.js",
+    "sim": "LIVE_SOURCE=simulator node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  },
+  "optionalDependencies": {
+    "tiktok-live-connector": "^2.5.0"
+  }
+}
