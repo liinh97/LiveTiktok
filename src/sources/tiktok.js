@@ -53,7 +53,7 @@ export function mapGift(msg) {
       name: first(g.name, g.giftName, msg.giftName, 'Quà'),
       coins: Number(first(g.diamondCount, msg.diamondCount, 0)),
       count: Number(first(msg.repeatCount, msg.comboCount, 1)) || 1,
-      image: first(g.image?.urlList?.[0], g.image?.url?.[0], msg.giftPictureUrl),
+      image: first(g.image?.urlList?.[0], g.image?.url?.[0], g.giftImage?.urlList?.[0], g.giftImage?.url?.[0], msg.giftPictureUrl),
     },
   });
 }
@@ -65,6 +65,18 @@ export function mapSimple(type, msg) {
   if (type === 'chat') extra.text = first(msg.content, msg.comment, '');
   if (type === 'like') extra.likes = Number(first(msg.count, msg.likeCount, 1));
   return makeEvent(type, { id: msgId(msg, type), source: 'tiktok', user, ...extra });
+}
+
+// Lỗi từ thư viện có khi là object lồng ({ info, exception }), đổi ra chữ đọc được
+function errText(err) {
+  const inner = err?.exception || err?.error || err;
+  const msg = inner?.message || err?.message || err?.info;
+  if (msg) return String(msg);
+  try {
+    return JSON.stringify(err).slice(0, 500);
+  } catch {
+    return String(err);
+  }
 }
 
 // ---- Kết nối ----
@@ -88,7 +100,9 @@ export class TikTokSource extends EventEmitter {
     const { TikTokLiveConnection, WebcastEvent, ControlEvent } = lib;
     const conn = new TikTokLiveConnection(this.username, {
       ...(this.signApiKey ? { signApiKey: this.signApiKey } : {}),
-      enableExtendedGiftInfo: true,
+      // Không tải danh sách quà lúc kết nối: Euler Stream đã chuyển bước ký này sang gói trả phí
+      // ("requires a Business plan"). Tên quà + số xu vẫn có trong từng tin tặng quà (giftDetails).
+      enableExtendedGiftInfo: false,
     });
     this.conn = conn;
 
@@ -113,7 +127,7 @@ export class TikTokSource extends EventEmitter {
       this.connected = false;
     });
     conn.on(WebcastEvent.STREAM_END, () => this.emit('status', { state: 'offline', detail: 'Buổi live đã kết thúc' }));
-    conn.on(ControlEvent.ERROR, (err) => this.emit('status', { state: 'error', detail: String(err?.message || err) }));
+    conn.on(ControlEvent.ERROR, (err) => this.emit('status', { state: 'error', detail: errText(err) }));
 
     this.emit('status', { state: 'connecting', detail: `Đang kết nối @${this.username}` });
     try {

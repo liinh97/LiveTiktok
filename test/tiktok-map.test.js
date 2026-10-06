@@ -29,6 +29,16 @@ test('quà không combo được tính ngay', () => {
   assert.equal(ev.gift.count, 1);
 });
 
+test('quà định dạng giftDetails (không tải danh sách quà lúc kết nối)', () => {
+  const giftDetails = { giftName: 'Rose', diamondCount: 1, giftType: 1, giftImage: { urlList: ['https://p16.tiktokcdn.com/rose.png'] } };
+  assert.equal(mapGift({ user, giftId: 5655, giftDetails, repeatCount: 2, repeatEnd: 0 }), null);
+  const ev = mapGift({ user, giftId: 5655, giftDetails, repeatCount: 4, repeatEnd: 1, common: { msgId: 'm3' } });
+  assert.equal(ev.gift.name, 'Rose');
+  assert.equal(ev.gift.coins, 1);
+  assert.equal(ev.gift.count, 4);
+  assert.equal(ev.gift.image, 'https://p16.tiktokcdn.com/rose.png');
+});
+
 test('chat, like', () => {
   assert.equal(mapSimple('chat', { user, content: 'hello', common: { msgId: 'c1' } }).text, 'hello');
   assert.equal(mapSimple('like', { user, count: 15 }).likes, 15);
