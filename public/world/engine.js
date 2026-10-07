@@ -22,7 +22,7 @@
 //     maxChars?: number           số nhân vật tối đa (mặc định 250; ghi đè bằng ?max= trên URL)
 //   }
 
-import { drawArms, drawWings, FOOT_Y, HEAD_R, HEAD_Y, partsOf, renderChibi, renderTag, SPRITE_H, SPRITE_W } from './chibi.js';
+import { drawArms, drawLegs, drawWings, FOOT_Y, HEAD_R, HEAD_Y, partsOf, renderChibi, renderTag, SPRITE_H, SPRITE_W } from './chibi.js';
 import { createFx } from './fx.js';
 
 const W = 1080;
@@ -310,70 +310,97 @@ function pickDance() {
   return 'bounce';
 }
 
-/** Độ lệch thân + kiểu tay cho một nhân vật ở thời điểm hiện tại. */
+/**
+ * Độ lệch thân + kiểu tay + chân cho một nhân vật ở thời điểm hiện tại.
+ * dy: cả người bay lên khỏi mặt đất (nhảy); dip: hạ hông, gập gối (nhún); legs: vị trí 2 bàn chân.
+ */
 function danceOf(c) {
   const beat = beatPos + (c.beatOff || 0);
   const b = Math.pow(Math.abs(Math.sin(Math.PI * beat)), 2);
-  const m = { dx: 0, dy: 0, rot: 0, sx: 1, arms: null, beat };
+  const odd = Math.floor(beat) % 2 === 1;
+  const m = { dx: 0, dy: 0, rot: 0, sx: 1, arms: null, beat, dip: 0, legs: {} };
   if (c.moving) {
-    m.dy = Math.abs(Math.sin(now * 12 + c.seed * 9)) * 7;
-    m.arms = c.path ? 'dance' : null;
+    // bước đi: hai chân nhấc luân phiên, người nhún nhẹ mỗi bước
+    const ph = now * 11 + c.seed * 9;
+    m.dip = Math.abs(Math.sin(ph)) * 3;
+    m.legs = { ly: -Math.max(0, Math.sin(ph)) * 9, ry: -Math.max(0, -Math.sin(ph)) * 9, lx: Math.sin(ph) * 2, rx: Math.sin(ph) * 2 };
+    m.arms = c.path ? 'dance' : 'walk';
     return m;
   }
   if (c.pose) {
-    m.dy = b * 6;
+    m.dip = b * 5;
     m.arms = c.pose;
     return m;
   }
   const move = c.dance?.move || 'bounce';
   m.arms = move;
   switch (move) {
-    case 'pump':
-      m.dy = b * 8;
+    case 'pump': // nhún sâu, hai chân dạng rộng
+      m.dip = b * 7;
+      m.legs = { lx: -3, rx: 3 };
       break;
     case 'clap':
-      m.dy = b * 4;
+      m.dip = b * 4;
       break;
-    case 'point':
-      m.rot = (Math.floor(beat) % 2 ? 1 : -1) * 0.07;
-      m.dy = b * 4;
+    case 'point': // chỉ tay disco: dồn trọng tâm, chân bên kia nhón gót
+      m.rot = (odd ? 1 : -1) * 0.07;
+      m.dip = b * 4;
+      m.dx = (odd ? -1 : 1) * 3;
+      m.legs = odd ? { rx: 6, ry: -6 } : { lx: -6, ly: -6 };
       break;
     case 'roof':
-      m.dy = b * 7;
+      m.dip = b * 6;
+      m.legs = { lx: -4, rx: 4 };
       break;
-    case 'wave2':
-      m.rot = Math.sin((Math.PI * beat) / 2) * 0.09;
-      m.dy = b * 3;
+    case 'wave2': {
+      const k = Math.sin((Math.PI * beat) / 2);
+      m.rot = k * 0.09;
+      m.dip = b * 3;
+      m.dx = k * 4;
+      m.legs = { lx: -5, rx: 5 };
       break;
-    case 'swing':
-      m.rot = Math.sin((Math.PI * beat) / 2) * 0.13;
-      m.dy = b * 3;
+    }
+    case 'swing': {
+      const k = Math.sin((Math.PI * beat) / 2);
+      m.rot = k * 0.13;
+      m.dip = b * 4;
+      m.dx = k * 5;
+      m.legs = { lx: -5 + k * 3, rx: 5 + k * 3 };
       break;
-    case 'shuffle':
-      m.dx = Math.sin(Math.PI * beat) * 12;
-      m.dy = b * 4;
+    }
+    case 'shuffle': {
+      // shuffle: đá chân luân phiên ra ngoài
+      const k = Math.sin(Math.PI * beat);
+      m.dx = k * 10;
+      m.dip = b * 4;
       m.arms = 'swing';
+      m.legs = k > 0 ? { rx: 10 * k, ry: -8 * k } : { lx: 10 * k, ly: 8 * k };
       break;
-    case 'hop':
+    }
+    case 'hop': // nhảy tưng: bay lên, co gối khi ở trên không
       m.dy = b * 18;
       m.arms = 'pump';
+      m.legs = { lx: -2, rx: 2, ly: -b * 7, ry: -b * 7 };
+      m.dip = b * 3;
       break;
     case 'spin': {
-      // xoay như chong chóng: mỗi nhịp một vòng, vừa xoay vừa nảy
+      // xoay như chong chóng: mỗi nhịp một vòng, vừa xoay vừa nảy, khép chân
       m.sx = Math.cos((beat - (c.dance.beat0 ?? 0)) * Math.PI * 2);
       m.dy = b * 10;
-      m.arms = Math.floor(beat) % 2 ? 'cheer' : 'tpose';
+      m.arms = odd ? 'cheer' : 'tpose';
+      m.legs = { lx: 3, rx: -3, ly: -b * 4 };
       break;
     }
     case 'heli': {
-      // trực thăng: giơ tay chữ T, xoay nhanh gấp đôi, nhấc lên khỏi sàn
+      // trực thăng: giơ tay chữ T, xoay nhanh gấp đôi, một chân đá ngang
       m.sx = Math.cos((beat - (c.dance.beat0 ?? 0)) * Math.PI * 4);
       m.dy = 10 + b * 14;
       m.arms = 'tpose';
+      m.legs = { rx: 16, ry: -14, lx: 2 };
       break;
     }
-    default:
-      m.dy = b * 6;
+    default: // bounce: nhún gối theo nhịp
+      m.dip = b * 6;
       m.arms = null;
   }
   return m;
@@ -552,9 +579,10 @@ function drawChar(c) {
   const busy = now < c.busyUntil;
   const alpha = c.leaving ? clamp(1 - (now - c.leaving) / 0.6, 0, 1) : 1;
   const ef = effectPose(c);
-  const m = ef.still ? { dx: 0, dy: 0, rot: 0, sx: 1, arms: null, beat: beatPos } : danceOf(c);
+  const m = ef.still ? { dx: 0, dy: 0, rot: 0, sx: 1, arms: null, beat: beatPos, dip: 0, legs: {} } : danceOf(c);
   const x = c.x + m.dx * s0;
   const y = c.y - m.dy * s0 - c.jumpY;
+  const air = (m.dy * s0 + c.jumpY) / Math.max(s, 0.01); // độ cao đang bay (đơn vị sprite) cho bóng dưới đất
   ctx.globalAlpha = alpha;
   drawEffectWorld(c, x, y, s);
 
@@ -580,10 +608,12 @@ function drawChar(c) {
     ctx.clip();
   }
   if (c.spin) {
-    // lộn một vòng (lệnh "Nhảy 1 cái")
+    // lộn một vòng (lệnh "Nhảy 1 cái"): co hai chân lại
     ctx.translate(x, y - dh / 2);
     ctx.rotate(c.spin);
-    ctx.drawImage(sp, -dw / 2, -dh / 2, dw, dh);
+    ctx.translate(0, dh / 2);
+    drawLegs(ctx, s, c.parts, { dip: 6, lx: 3, rx: -3, ly: -10, ry: -10 }, 999);
+    ctx.drawImage(sp, -dw / 2, -dh - 2 * s + 6 * s, dw, dh);
   } else {
     ctx.translate(x + ef.dx * s, y - ef.dy * s);
     ctx.rotate(m.rot + ef.rot);
@@ -591,9 +621,13 @@ function drawChar(c) {
     if (ef.potato) drawPotato(s, m.dy);
     else {
       if (ef.coffin) drawCoffin(s);
-      const squash = c.moving ? 0 : (m.dy / 18) * 0.05;
+      const detail = s * cam.z > 0.8; // nhân vật đủ to trên màn hình mới vẽ chi tiết nhỏ
+      drawLegs(ctx, s, c.parts, { ...m.legs, ...ef.legs, dip: m.dip }, air + ef.dy, detail);
+      // thân hạ xuống theo độ gập gối, hơi bè ra khi nhún
+      ctx.translate(0, m.dip * s);
+      const squash = (m.dip / 7) * 0.035;
       ctx.drawImage(sp, (-dw * (1 + squash)) / 2, -dh * (1 - squash) - 2 * s, dw * (1 + squash), dh * (1 - squash));
-      drawArms(ctx, 0, 0, s, c.parts, ef.arms || m.arms, now, c.seed, m.beat);
+      drawArms(ctx, 0, 0, s, c.parts, ef.arms || m.arms, now, c.seed, m.beat, detail);
       drawEffectOverlay(c, s);
     }
   }

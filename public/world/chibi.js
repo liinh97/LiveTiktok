@@ -56,22 +56,11 @@ export function renderChibi(parts, avatar, res = 1.25) {
   const hx = 50;
   const hy = HEAD_Y;
 
-  // bóng dưới chân
-  g.fillStyle = 'rgba(0,0,0,.35)';
-  g.beginPath();
-  g.ellipse(50, 136, 20, 4, 0, 0, Math.PI * 2);
-  g.fill();
-
-  // chân + giày
+  // Chân + bóng không vẽ sẵn ở đây: vẽ mỗi khung hình bằng drawLegs() để gập gối, bước, đá chân.
+  // Đáy quần (hông) để chân nối vào cho liền
   g.fillStyle = parts.pants;
   g.beginPath();
-  g.roundRect(38, 108, 10, 24, 4);
-  g.roundRect(52, 108, 10, 24, 4);
-  g.fill();
-  g.fillStyle = '#f5f5f5';
-  g.beginPath();
-  g.ellipse(42, 133, 8, 4.5, 0, 0, Math.PI * 2);
-  g.ellipse(58, 133, 8, 4.5, 0, 0, Math.PI * 2);
+  g.roundRect(36, 104, 28, 12, [2, 2, 6, 6]);
   g.fill();
 
   // thân áo
@@ -391,10 +380,11 @@ function accessory(g, parts, x, y, hasAvatar) {
 
 /**
  * Tay vẽ mỗi khung hình (để giơ tay, vỗ tay, quẩy...). x, y: chân nhân vật; s: tỉ lệ.
- * pose: cheer | dance | wave | pump | clap | point | roof | wave2 | swing | carry | tpose | flap | noodle | (null = buông tay)
+ * pose: walk | cheer | dance | wave | pump | clap | point | roof | wave2 | swing | carry | tpose | flap | noodle | (null = buông tay)
  * beat: số nhịp nhạc đã trôi (số thực) để tay chuyển động khớp nhịp.
+ * detail: false khi nhân vật nhỏ trên màn hình (bỏ ngón cái, viền giày) cho nhanh.
  */
-export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2) {
+export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2, detail = true) {
   const sy = y - (FOOT_Y - SHOULDER_Y) * s;
   const lx = x - 17 * s;
   const rx = x + 17 * s;
@@ -485,29 +475,140 @@ export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2) {
       RC = [rx + 14 * s + Math.cos(a * 1.9 + 1) * 22 * s, sy + Math.sin(a * 2.3 + 2) * 22 * s];
       break;
     }
+    case 'walk': {
+      // đánh tay khi đi bộ, ngược nhịp với chân
+      const k = Math.sin(t * 11 + seed * 9);
+      L = [lx - 7 * s, sy + (22 + k * 5) * s];
+      R = [rx + 7 * s, sy + (22 - k * 5) * s];
+      break;
+    }
     default: {
       const k = Math.sin(t * 4 + seed * 6) * 2 * s;
-      L = [lx - 6 * s, sy + 24 * s + k];
-      R = [rx + 6 * s, sy + 24 * s - k];
+      L = [lx - 5 * s, sy + 28 * s + k];
+      R = [rx + 5 * s, sy + 28 * s - k];
     }
   }
+  const LS = [lx, sy];
+  const RS = [rx, sy];
+  const LM = LC || pickJoint(LS, L, ARM_UP * s, ARM_LOW * s, -1, x);
+  const RM = RC || pickJoint(RS, R, ARM_UP * s, ARM_LOW * s, 1, x);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = parts.outfit;
-  ctx.lineWidth = 8 * s;
+  // cẳng tay (màu da) vẽ trước, bắp tay (tay áo) đè lên ở khuỷu; gom 2 tay vào một lần vẽ cho nhanh
+  ctx.strokeStyle = parts.skin;
+  ctx.lineWidth = 6.5 * s;
   ctx.beginPath();
-  ctx.moveTo(lx, sy);
-  if (LC) ctx.quadraticCurveTo(LC[0], LC[1], L[0], L[1]);
-  else ctx.lineTo(L[0], L[1]);
-  ctx.moveTo(rx, sy);
-  if (RC) ctx.quadraticCurveTo(RC[0], RC[1], R[0], R[1]);
-  else ctx.lineTo(R[0], R[1]);
+  ctx.moveTo(LM[0], LM[1]);
+  ctx.lineTo(L[0], L[1]);
+  ctx.moveTo(RM[0], RM[1]);
+  ctx.lineTo(R[0], R[1]);
+  ctx.stroke();
+  ctx.strokeStyle = parts.outfit;
+  ctx.lineWidth = 8.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(LS[0], LS[1]);
+  ctx.lineTo(LM[0], LM[1]);
+  ctx.moveTo(RS[0], RS[1]);
+  ctx.lineTo(RM[0], RM[1]);
   ctx.stroke();
   ctx.fillStyle = parts.skin;
   ctx.beginPath();
-  ctx.arc(L[0], L[1], 4.5 * s, 0, Math.PI * 2);
-  ctx.arc(R[0], R[1], 4.5 * s, 0, Math.PI * 2);
+  ctx.arc(L[0], L[1], 4.8 * s, 0, Math.PI * 2);
+  ctx.moveTo(R[0] + 4.8 * s, R[1]);
+  ctx.arc(R[0], R[1], 4.8 * s, 0, Math.PI * 2);
   ctx.fill();
+  if (detail) {
+    thumb(ctx, L, LM, s, -1);
+    thumb(ctx, R, RM, s, 1);
+  }
+}
+
+// ---------- Khớp tay chân (2 đoạn, gập ở khuỷu / gối) ----------
+const ARM_UP = 15; // bắp tay
+const ARM_LOW = 15; // cẳng tay
+const THIGH = 15;
+const SHIN = 15;
+export const HIP_Y = 108; // hông trong sprite (chân nối vào đây)
+
+/**
+ * Tìm khớp giữa (khuỷu / gối) để đoạn trên dài a, đoạn dưới dài b nối từ gốc A tới đích B.
+ * side: -1 / 1 = khớp chĩa sang trái / phải. Xa quá tầm với thì duỗi thẳng (kéo dài chút kiểu hoạt hình).
+ */
+function joint(A, B, a, b, side) {
+  const dx = B[0] - A[0];
+  const dy = B[1] - A[1];
+  const d = Math.hypot(dx, dy) || 0.001;
+  if (d >= a + b - 0.01) return [A[0] + (dx * a) / (a + b), A[1] + (dy * a) / (a + b)];
+  const dd = Math.max(d, Math.abs(a - b) + 0.01);
+  const cosA = clamp1((a * a + dd * dd - b * b) / (2 * a * dd));
+  const ang = Math.atan2(dy, dx) + side * Math.acos(cosA);
+  return [A[0] + Math.cos(ang) * a, A[1] + Math.sin(ang) * a];
+}
+const clamp1 = (v) => Math.max(-1, Math.min(1, v));
+
+/** Chọn khớp giữa chĩa ra xa thân (khuỷu / gối hướng ra ngoài trông tự nhiên). */
+function pickJoint(A, B, a, b, outward, cx) {
+  const m1 = joint(A, B, a, b, 1);
+  const m2 = joint(A, B, a, b, -1);
+  return (m1[0] - cx) * outward >= (m2[0] - cx) * outward ? m1 : m2;
+}
+
+/** Ngón cái trên bàn tay tròn, hướng theo cẳng tay. */
+function thumb(ctx, H, E, s, side) {
+  const ta = Math.atan2(H[1] - E[1], H[0] - E[0]) - side * 1.2;
+  ctx.beginPath();
+  ctx.ellipse(H[0] + Math.cos(ta) * 4 * s, H[1] + Math.sin(ta) * 4 * s, 2.6 * s, 1.8 * s, ta, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/**
+ * Chân vẽ mỗi khung hình, gốc toạ độ (0,0) = mặt đất giữa hai chân. s: tỉ lệ.
+ * legs: { dip: hông hạ xuống (gập gối), lx, ly, rx, ry: bàn chân trái/phải lệch khỏi chỗ đứng (ly/ry âm = nhấc lên) }
+ * shadow: false khi nhân vật đang bay (bóng vẽ riêng).
+ */
+export function drawLegs(ctx, s, parts, legs = {}, shadowLift = 0, detail = true) {
+  const dip = legs.dip || 0;
+  const hipY = (-(FOOT_Y - HIP_Y) + dip) * s;
+  // bóng dưới chân: nhỏ lại khi đang nhảy lên
+  if (shadowLift < 150) {
+    const sh = Math.max(0.4, 1 - shadowLift / 60);
+    ctx.fillStyle = 'rgba(0,0,0,.35)';
+    ctx.beginPath();
+    ctx.ellipse(0, (shadowLift - 2) * s, 20 * sh * s, 4 * sh * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const LH = [-7 * s, hipY];
+  const RH = [7 * s, hipY];
+  const LF = [(-8 + (legs.lx || 0)) * s, (-1 + (legs.ly || 0)) * s];
+  const RF = [(8 + (legs.rx || 0)) * s, (-1 + (legs.ry || 0)) * s];
+  const LK = pickJoint(LH, LF, THIGH * s, SHIN * s, -1, 0);
+  const RK = pickJoint(RH, RF, THIGH * s, SHIN * s, 1, 0);
+  // đùi + cẳng chân cùng màu quần: vẽ cả 2 chân một lần (khớp tròn nhờ lineJoin)
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = parts.pants;
+  ctx.lineWidth = 9.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(LH[0], LH[1]);
+  ctx.lineTo(LK[0], LK[1]);
+  ctx.lineTo(LF[0], LF[1]);
+  ctx.moveTo(RH[0], RH[1]);
+  ctx.lineTo(RK[0], RK[1]);
+  ctx.lineTo(RF[0], RF[1]);
+  ctx.stroke();
+  // giày: mũi chĩa ra ngoài, nghiêng khi nhấc chân
+  const tilt = (f) => Math.min(0.5, Math.max(0, -f[1] / s - 1) / 30);
+  ctx.fillStyle = '#f5f5f5';
+  ctx.beginPath();
+  ctx.ellipse(LF[0] - 2 * s, LF[1] + 2 * s, 8 * s, 4.5 * s, -tilt(LF), 0, Math.PI * 2);
+  ctx.moveTo(RF[0] + 10 * s, RF[1] + 2 * s);
+  ctx.ellipse(RF[0] + 2 * s, RF[1] + 2 * s, 8 * s, 4.5 * s, tilt(RF), 0, Math.PI * 2);
+  ctx.fill();
+  if (detail) {
+    ctx.fillStyle = 'rgba(0,0,0,.15)';
+    ctx.fillRect(LF[0] - 9 * s, LF[1] + 4.6 * s, 14 * s, 1.2 * s);
+    ctx.fillRect(RF[0] - 5 * s, RF[1] + 4.6 * s, 14 * s, 1.2 * s);
+  }
 }
 
 /** Đôi cánh thiên thần phát sáng xanh (lệnh "Huy hiệu + cánh"). */
