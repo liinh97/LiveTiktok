@@ -6,148 +6,236 @@
   <title>Bảng điều khiển</title>
   <style>
     :root {
-      --bg: #f4f5f7; --card: #fff; --text: #1d2330; --muted: #6b7280; --line: #e5e7eb;
-      --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --accent: #7c3aed;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root { --bg: #0f1218; --card: #181c25; --text: #e7e9ee; --muted: #9aa3b2; --line: #2a303c; }
+      --bg: #0e131b; --card: #151b25; --card2: #1a2130; --line: #252e3d; --line2: #2f3a4c;
+      --text: #e8ecf3; --muted: #8b95a7; --dim: #5f6b7e;
+      --accent: #f5a524; --accent-ink: #1a1305;
+      --ok: #22c55e; --warn: #f59e0b; --bad: #ef4444; --info: #60a5fa; --purple: #a78bfa;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font: 15px/1.45 system-ui, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
-    header { position: sticky; top: 0; z-index: 2; background: var(--card); border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 10px; align-items: center; }
-    header h1 { font-size: 17px; margin: 0; flex: 1; }
-    main { max-width: 960px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-    section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; }
-    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
-    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: var(--muted); }
-    .dot.connected { background: var(--ok); } .dot.connecting { background: var(--warn); }
-    .dot.error, .dot.disconnected, .dot.offline { background: var(--bad); }
-    .row { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
-    .row:last-child { border-bottom: 0; }
+    body { margin: 0; font: 13px/1.5 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    b, strong { font-weight: 650; }
     .muted { color: var(--muted); }
-    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .stat { background: var(--bg); border-radius: 10px; padding: 10px; }
-    .stat b { display: block; font-size: 22px; }
-    button, select, input { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); padding: 8px 12px; min-height: 40px; }
-    button { cursor: pointer; font-weight: 600; }
-    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-    button.danger { color: var(--bad); }
+
+    /* ---- Thanh trên ---- */
+    header { position: sticky; top: 0; z-index: 5; height: 54px; background: var(--card); border-bottom: 1px solid var(--line); padding: 0 16px; display: flex; gap: 12px; align-items: center; }
+    .logo { width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 800; font-size: 15px; flex: none; }
+    .brand { line-height: 1.15; margin-right: 6px; }
+    .brand b { display: block; font-size: 14px; }
+    .brand span { font-size: 11px; color: var(--muted); }
+    .loc-pick { display: flex; align-items: center; gap: 6px; background: var(--card2); border: 1px solid var(--line2); border-radius: 8px; padding: 0 4px 0 10px; height: 34px; }
+    .loc-pick select { background: transparent; border: 0; min-height: 0; height: 32px; padding: 0 6px; font-weight: 600; min-width: 130px; }
+    .loc-pick select:focus { outline: none; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: rgba(139,149,167,.12); color: var(--muted); white-space: nowrap; }
+    .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .pill.connected { background: rgba(34,197,94,.13); color: #4ade80; }
+    .pill.connecting { background: rgba(245,158,11,.14); color: #fbbf24; }
+    .pill.error, .pill.disconnected { background: rgba(239,68,68,.14); color: #f87171; }
+    .pill.offline { background: rgba(139,149,167,.14); color: #aab3c2; }
+    header .spacer { flex: 1; }
+
+    /* ---- Nội dung ---- */
+    main { padding: 20px; max-width: 1560px; margin: 0 auto; }
+    .page-title { margin: 0 0 2px; font-size: 18px; font-weight: 700; }
+    .subline { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 16px; }
+    .subline .hl { color: var(--ok); font-weight: 600; }
+    .subline .sep { color: var(--dim); }
+
+    .banner { display: none; gap: 12px; align-items: flex-start; background: rgba(239,68,68,.07); border: 1px solid rgba(239,68,68,.45); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; max-width: 940px; }
+    .banner.show { display: flex; }
+    .banner .bdot { width: 20px; height: 20px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ff8a8a, var(--bad)); flex: none; margin-top: 2px; }
+    .banner-title { color: #f87171; font-weight: 700; font-size: 14px; }
+    .banner .item { display: flex; align-items: center; gap: 10px; color: #f3a5a5; font-size: 12px; padding: 3px 0; }
+    .banner .item span { flex: 1; overflow-wrap: anywhere; }
+    .banner-body { flex: 1; min-width: 0; }
+
+    .kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+    .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+    .kpi .lbl { font-size: 12px; color: var(--muted); }
+    .kpi .val { font-size: 22px; font-weight: 700; margin: 2px 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .badge { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: rgba(139,149,167,.15); color: #aab3c2; white-space: nowrap; }
+    .badge.ok { background: rgba(34,197,94,.15); color: #4ade80; }
+    .badge.warn { background: rgba(245,158,11,.16); color: #fbbf24; }
+    .badge.bad, .badge.error { background: rgba(239,68,68,.16); color: #f87171; }
+    .badge.info { background: rgba(96,165,250,.15); color: #93c5fd; }
+    .badge.purple { background: rgba(167,139,250,.16); color: #c4b5fd; }
+
+    .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+    .col { display: grid; gap: 14px; min-width: 0; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+    .card-h { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .card-h h2 { margin: 0; font-size: 14px; font-weight: 700; flex: 1; }
+    .card-h .count { font-size: 11px; color: var(--muted); background: var(--card2); border-radius: 4px; padding: 0 6px; }
+    .link { background: none; border: 0; min-height: 0; padding: 0; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
+    .link:hover { text-decoration: underline; }
+    .hint { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+    .hint code { color: #cbd5e1; background: var(--card2); padding: 0 4px; border-radius: 4px; }
+
+    .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+    .row:last-child { border-bottom: 0; }
+    .row > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+    .kv .row > span:last-child { text-align: right; }
+    .log { max-height: 360px; overflow: auto; padding-right: 4px; }
+    .log .row { padding: 7px 0; }
+    .t { color: var(--dim); font-variant-numeric: tabular-nums; margin-right: 6px; }
+    .coins { color: var(--accent); font-weight: 700; white-space: nowrap; }
+    .rank { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--card2); color: var(--muted); font-size: 11px; font-weight: 700; margin-right: 8px; }
+    .rank.r1 { background: rgba(245,165,36,.2); color: var(--accent); }
+    .rank.r2 { background: rgba(203,213,225,.15); color: #cbd5e1; }
+    .rank.r3 { background: rgba(217,119,6,.18); color: #f0a35e; }
+
+    button, select, input { font: inherit; border-radius: 8px; border: 1px solid var(--line2); background: var(--card2); color: var(--text); padding: 6px 12px; min-height: 34px; }
+    input::placeholder { color: var(--dim); }
+    input:focus, select:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
+    button { cursor: pointer; font-weight: 600; font-size: 12.5px; }
+    button:hover { border-color: #3d4a60; background: #1f2737; }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+    button.primary:hover { background: #ffb53d; }
+    button.danger { color: #f87171; background: transparent; border-color: rgba(239,68,68,.35); padding: 2px 10px; min-height: 26px; font-size: 11.5px; }
+    button.small { min-height: 26px; padding: 2px 10px; font-size: 11.5px; }
     .btns { display: flex; flex-wrap: wrap; gap: 8px; }
-    .alert { padding: 8px 10px; border-radius: 8px; margin-bottom: 8px; display: flex; gap: 8px; align-items: start; }
-    .alert.error { background: rgba(220,38,38,.12); } .alert.warn { background: rgba(217,119,6,.14); }
-    .alert span { flex: 1; }
-    .log { max-height: 340px; overflow: auto; font-size: 14px; }
-    .log .row { align-items: center; }
-    .tag { font-size: 12px; padding: 1px 6px; border-radius: 6px; background: var(--bg); color: var(--muted); }
-    .coins { color: var(--warn); font-weight: 700; }
-    #login { display: none; }
-    .full { grid-column: 1 / -1; }
+    .group-t { font-size: 11px; font-weight: 700; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; margin: 14px 0 8px; }
+    #login { display: none; max-width: 420px; margin-bottom: 16px; }
+
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #2a3445; border-radius: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    @media (max-width: 1200px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: minmax(0, 1fr); }
+      .brand span { display: none; }
+    }
+    @media (max-width: 600px) {
+      main { padding: 14px 12px; }
+      .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      header { gap: 8px; padding: 0 10px; }
+      .brand { display: none; }
+      .loc-pick select { min-width: 0; }
+      #pauseBtn .txt { display: none; }
+    }
   </style>
 </head>
 <body>
   <header>
-    <span class="dot" id="srcDot"></span>
-    <h1 id="title">Bảng điều khiển</h1>
-    <button id="pauseBtn">Tạm dừng</button>
+    <div class="logo">🍸</div>
+    <div class="brand"><b id="title">Bảng điều khiển</b><span>Quản lý live TikTok</span></div>
+    <label class="loc-pick" title="Đổi địa điểm">
+      <span aria-hidden="true">🏠</span>
+      <select id="locSelect" aria-label="Đổi địa điểm"></select>
+    </label>
+    <span class="pill" id="statusPill">…</span>
+    <span class="spacer"></span>
+    <button id="pauseBtn">⏸ <span class="txt">Tạm dừng</span></button>
   </header>
+
   <main>
-    <section id="login" class="full">
-      <h2>Mật khẩu</h2>
-      <div class="btns"><input id="tokenInput" type="password" placeholder="DASHBOARD_TOKEN"><button class="primary" id="tokenBtn">Vào</button></div>
+    <section id="login" class="card">
+      <div class="card-h"><h2>🔒 Mật khẩu</h2></div>
+      <div class="btns"><input id="tokenInput" type="password" placeholder="DASHBOARD_TOKEN" style="flex:1"><button class="primary" id="tokenBtn">Vào</button></div>
     </section>
 
-    <section>
-      <h2>Trạng thái</h2>
-      <div class="row"><span>Nguồn sự kiện</span><span id="src">—</span></div>
-      <div class="row"><span>Trang hiển thị (OBS)</span><span id="world">—</span></div>
-      <div class="row"><span>Địa điểm</span><span id="loc">—</span></div>
-      <div class="row"><span>Tiếp theo</span><span id="next">—</span></div>
-      <div class="btns" style="margin-top:10px">
-        <select id="locSelect" aria-label="Đổi địa điểm"></select>
-        <button id="reconnectBtn">Kết nối lại</button>
+    <h1 class="page-title">Tổng quan</h1>
+    <div class="subline" id="subline">…</div>
+
+    <div class="banner" id="alertBox">
+      <div class="bdot"></div>
+      <div class="banner-body">
+        <div class="banner-title">Cần xử lý ngay</div>
+        <div id="alerts"></div>
       </div>
-    </section>
+    </div>
 
-    <section>
-      <h2>Ca hiện tại</h2>
-      <div class="stats">
-        <div class="stat"><span class="muted">Xu</span><b id="sCoins">0</b></div>
-        <div class="stat"><span class="muted">Ước tính</span><b id="sVnd">0đ</b></div>
-        <div class="stat"><span class="muted">Xu / giờ</span><b id="sRate">0</b></div>
-        <div class="stat"><span class="muted">Người tặng</span><b id="sGifters">0</b></div>
+    <div class="kpis">
+      <div class="kpi"><div class="lbl">Xu ca này</div><div class="val" id="sCoins">0</div><span class="badge warn" id="bCoins">Ca hiện tại</span></div>
+      <div class="kpi"><div class="lbl">Ước tính</div><div class="val" id="sVnd">0 đ</div><span class="badge ok">Tiền về (ước)</span></div>
+      <div class="kpi"><div class="lbl">Xu / giờ</div><div class="val" id="sRate">0</div><span class="badge info">Tốc độ</span></div>
+      <div class="kpi"><div class="lbl">Người tặng</div><div class="val" id="sGifters">0</div><span class="badge purple">Trong ca</span></div>
+      <div class="kpi"><div class="lbl">Hôm nay</div><div class="val" id="kToday">0</div><span class="badge" id="bToday">xu</span></div>
+      <div class="kpi"><div class="lbl">Màn hình OBS</div><div class="val" id="kWorld">0</div><span class="badge" id="world">—</span></div>
+    </div>
+
+    <div class="grid">
+      <div class="col">
+        <section class="card">
+          <div class="card-h"><h2>🎮 Bấm thử hiệu ứng</h2><span class="muted" style="font-size:11px">Không tính vào thống kê</span></div>
+          <div class="btns">
+            <button data-sim='{"type":"join"}'>👋 Vào</button>
+            <button data-sim='{"type":"like"}'>❤️ Thả tim</button>
+            <button data-sim='{"type":"follow"}'>⭐ Theo dõi</button>
+            <button data-sim='{"type":"chat","text":"Quán vui quá!"}'>💬 Chat</button>
+            <button data-sim='{"type":"chat","text":"!nhac Lạc Trôi"}'>🎵 !nhac</button>
+            <button data-sim='{"type":"gift","giftName":"Rose","coins":1,"count":5}'>🌹 5 Rose</button>
+            <button data-sim='{"type":"gift","giftName":"Doughnut","coins":30}'>🍩 Donut</button>
+            <button data-sim='{"type":"gift","giftName":"Money Gun","coins":500}'>💸 500 xu</button>
+            <button data-sim='{"type":"gift","giftName":"Lion","coins":29999}'>🦁 Sư tử</button>
+            <button data-bulk="50">👥 Thả 50 người vào</button>
+          </div>
+
+          <div class="group-t">Chat thử như người xem</div>
+          <div class="btns">
+            <input id="chatName" value="Người thử" style="width:130px" aria-label="Tên người thử">
+            <input id="chatText" placeholder="!goi tra sua" style="flex:1;min-width:140px" aria-label="Nội dung chat">
+            <button class="primary" id="chatSend">Gửi</button>
+          </div>
+          <div class="btns" style="margin-top:8px">
+            <button data-chat="!goi tra sua">🧋 !goi tra sua</button>
+            <button data-chat="!goi ot">🌶️ !goi ot</button>
+            <button data-chat="!goi tang luc">⚡ !goi tang luc</button>
+            <button data-chat="!goi soda">🥤 !goi soda</button>
+            <button data-chat="!goi da">🍧 !goi da</button>
+            <button data-chat="!goi chanh">🍋 !goi chanh</button>
+            <button data-chat="!baihat">🎵 !baihat</button>
+            <button data-chat="!nhac 2">🎵 !nhac 2</button>
+            <button data-chat="!vote 3">👍 !vote 3</button>
+            <button data-chat="!dancer gau">🐻 !dancer gau</button>
+            <button data-chat="!troll">🤡 !troll</button>
+            <button data-chat="!khien">🛡️ !khien</button>
+            <button data-chat="!nhay ga">🐔 !nhay ga</button>
+            <button data-chat="!nhay sau">🪱 !nhay sau</button>
+            <button data-chat="!nhay tpose">🧍 !nhay tpose</button>
+            <button data-chat="!nhay ngao">🤪 !nhay ngao</button>
+            <button data-chat="!nhay deo">🙆 !nhay deo</button>
+          </div>
+          <p class="hint" style="margin-top:8px">Thử troll: đổi tên thành "Nam" gõ gì đó, đổi lại tên khác gõ <code>!troll Nam</code> rồi bấm một quà ở trên.</p>
+
+          <div class="group-t">Lệnh quà của bối cảnh đang mở</div>
+          <div class="btns" id="cmdBtns"><span class="muted">Không có</span></div>
+        </section>
+
+        <section class="card">
+          <div class="card-h"><h2>⚡ Hoạt động gần đây</h2></div>
+          <div class="log" id="actions"><span class="muted">Chưa có</span></div>
+        </section>
       </div>
-      <div id="today" class="muted" style="margin-top:10px"></div>
-    </section>
 
-    <section>
-      <h2>Báo động</h2>
-      <div id="alerts"><span class="muted">Không có</span></div>
-    </section>
+      <div class="col">
+        <section class="card">
+          <div class="card-h"><h2>📡 Trạng thái</h2><button class="link" id="reconnectBtn">Kết nối lại →</button></div>
+          <div class="kv">
+            <div class="row"><span class="muted">Nguồn sự kiện</span><span id="src">—</span></div>
+            <div class="row"><span class="muted">Địa điểm</span><span id="loc">—</span></div>
+            <div class="row"><span class="muted">Tiếp theo</span><span id="next">—</span></div>
+            <div class="row"><span class="muted">Hôm nay theo địa điểm</span><span id="today">—</span></div>
+          </div>
+        </section>
 
-    <section>
-      <h2>Bấm thử hiệu ứng</h2>
-      <p class="muted" style="margin-top:0">Sự kiện thử không tính vào thống kê.</p>
-      <div class="btns">
-        <button data-sim='{"type":"join"}'>👋 Vào</button>
-        <button data-sim='{"type":"like"}'>❤️ Thả tim</button>
-        <button data-sim='{"type":"follow"}'>⭐ Theo dõi</button>
-        <button data-sim='{"type":"chat","text":"Quán vui quá!"}'>💬 Chat</button>
-        <button data-sim='{"type":"chat","text":"!nhac Lạc Trôi"}'>🎵 !nhac</button>
-        <button data-sim='{"type":"gift","giftName":"Rose","coins":1,"count":5}'>🌹 5 Rose</button>
-        <button data-sim='{"type":"gift","giftName":"Doughnut","coins":30}'>🍩 Donut</button>
-        <button data-sim='{"type":"gift","giftName":"Money Gun","coins":500}'>💸 500 xu</button>
-        <button data-sim='{"type":"gift","giftName":"Lion","coins":29999}'>🦁 Sư tử</button>
-        <button data-bulk="50">👥 Thả 50 người vào</button>
+        <section class="card">
+          <div class="card-h"><h2>🏆 Top hôm nay</h2></div>
+          <div id="top"><span class="muted">Chưa có</span></div>
+        </section>
+
+        <section class="card">
+          <div class="card-h"><h2>🚫 Đã chặn</h2><span class="count" id="blockedCount">0</span></div>
+          <div id="blocked"><span class="muted">Không có</span></div>
+        </section>
+
+        <section class="card">
+          <div class="card-h"><h2>🧾 Nhật ký hệ thống</h2></div>
+          <div class="log" id="logs"></div>
+        </section>
       </div>
-      <p class="muted" style="margin:12px 0 6px">Chat thử như người xem (vd. <code>!goi ot</code>, <code>!nhac 2</code>, <code>!nem Lan</code>, <code>!troll Lan</code>):</p>
-      <div class="btns">
-        <input id="chatName" value="Người thử" style="width:120px" aria-label="Tên người thử">
-        <input id="chatText" placeholder="!goi tra sua" style="flex:1;min-width:140px" aria-label="Nội dung chat">
-        <button class="primary" id="chatSend">Gửi</button>
-      </div>
-      <div class="btns" style="margin-top:8px">
-        <button data-chat="!goi tra sua">🧋 !goi tra sua</button>
-        <button data-chat="!goi ot">🌶️ !goi ot</button>
-        <button data-chat="!goi tang luc">⚡ !goi tang luc</button>
-        <button data-chat="!goi soda">🥤 !goi soda</button>
-        <button data-chat="!goi da">🍧 !goi da</button>
-        <button data-chat="!goi chanh">🍋 !goi chanh</button>
-        <button data-chat="!baihat">🎵 !baihat</button>
-        <button data-chat="!nhac 2">🎵 !nhac 2</button>
-        <button data-chat="!vote 3">👍 !vote 3</button>
-        <button data-chat="!dancer gau">🐻 !dancer gau</button>
-        <button data-chat="!troll">🤡 !troll</button>
-        <button data-chat="!khien">🛡️ !khien</button>
-        <button data-chat="!nhay ga">🐔 !nhay ga</button>
-        <button data-chat="!nhay sau">🪱 !nhay sau</button>
-        <button data-chat="!nhay tpose">🧍 !nhay tpose</button>
-        <button data-chat="!nhay ngao">🤪 !nhay ngao</button>
-        <button data-chat="!nhay deo">🙆 !nhay deo</button>
-      </div>
-      <p class="muted" style="margin:6px 0 0">Thử troll: đổi tên thành "Nam" gõ gì đó, đổi lại tên khác gõ <code>!troll Nam</code> rồi bấm một quà ở trên.</p>
-      <p class="muted" style="margin:12px 0 6px">Lệnh quà của bối cảnh đang mở:</p>
-      <div class="btns" id="cmdBtns"><span class="muted">Không có</span></div>
-    </section>
-
-    <section class="full">
-      <h2>Hoạt động gần đây</h2>
-      <div class="log" id="actions"><span class="muted">Chưa có</span></div>
-    </section>
-
-    <section>
-      <h2>Top hôm nay</h2>
-      <div id="top"><span class="muted">Chưa có</span></div>
-    </section>
-
-    <section>
-      <h2>Đã chặn</h2>
-      <div id="blocked"><span class="muted">Không có</span></div>
-    </section>
-
-    <section class="full">
-      <h2>Nhật ký hệ thống</h2>
-      <div class="log" id="logs"></div>
-    </section>
+    </div>
   </main>
   <script src="./dashboard.js"></script>
 </body>

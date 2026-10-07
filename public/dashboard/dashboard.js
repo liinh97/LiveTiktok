@@ -38,15 +38,39 @@ let paused = false;
 let locOptionsKey = '';
 let cmdOptionsKey = '';
 
+const PILL_VI = { connected: 'Đang live', connecting: 'Đang kết nối', disconnected: 'Mất kết nối', offline: 'Chưa live', error: 'Lỗi nguồn', idle: 'Chưa chạy' };
+// Màu nhãn cho từng loại hành động / mức nhật ký
+const actionTone = (a) =>
+  a.startsWith('gift') || a === 'tier_up' ? 'warn' : a.startsWith('troll') ? 'purple' : a === 'enter' || a === 'follow' ? 'info' : a === 'cheer' ? 'bad' : '';
+const LOG_TONE = { info: 'info', warn: 'warn', error: 'bad' };
+const DATE_FMT = { weekday: 'long', day: 'numeric', month: 'long' };
+
 function render(s) {
   $('login').style.display = 'none';
   $('title').textContent = s.worldName || 'Bảng điều khiển';
+  document.title = `${s.worldName || 'Bảng điều khiển'} · Tổng quan`;
   const st = s.source;
-  $('srcDot').className = `dot ${st.state}`;
+  // Nguồn giả lập "đã kết nối" không phải đang live thật
+  const pillText = st.source === 'simulator' && st.state === 'connected' ? 'Giả lập' : PILL_VI[st.state] || st.state;
+  $('statusPill').className = `pill ${st.source === 'simulator' ? 'connecting' : st.state}`;
+  $('statusPill').textContent = pillText;
   $('src').innerHTML = `<b>${esc(st.source)}</b> · ${esc(STATE_VI[st.state] || st.state)}${st.detail ? `<br><span class="muted">${esc(st.detail)}</span>` : ''}`;
-  $('world').innerHTML = s.worldClients ? `<span style="color:var(--ok)">${s.worldClients} đang mở</span>` : '<span style="color:var(--bad)">không có</span>';
-  $('loc').textContent = s.location ? `${s.location.emoji} ${s.location.name}${s.overridden ? ' (chỉnh tay)' : ''}` : '🌙 Đóng cửa';
+  $('kWorld').textContent = fmt(s.worldClients);
+  $('world').className = `badge ${s.worldClients ? 'ok' : 'bad'}`;
+  $('world').textContent = s.worldClients ? 'Đang mở' : 'Chưa mở';
+  const locText = s.location ? `${s.location.emoji} ${s.location.name}${s.overridden ? ' (chỉnh tay)' : ''}` : '🌙 Đóng cửa';
+  $('loc').textContent = locText;
   $('next').textContent = s.next ? `${s.next.emoji} ${s.next.name} lúc ${s.next.start}` : '—';
+
+  const date = new Date().toLocaleDateString('vi-VN', DATE_FMT);
+  $('subline').innerHTML = [
+    `<span>${esc(date.charAt(0).toUpperCase() + date.slice(1))}</span>`,
+    `<span>📍 ${esc(locText)}</span>`,
+    `<span>Nguồn: <span class="${st.state === 'connected' && st.source !== 'simulator' ? 'hl' : ''}">${esc(pillText)}</span></span>`,
+    s.next ? `<span>Tiếp theo: ${esc(s.next.name)} lúc ${esc(s.next.start)}</span>` : '',
+  ]
+    .filter(Boolean)
+    .join('<span class="sep">·</span>');
 
   const key = s.locations.map((l) => l.id).join();
   if (key !== locOptionsKey) {
@@ -67,40 +91,48 @@ function render(s) {
   }
 
   paused = s.paused;
-  $('pauseBtn').textContent = paused ? '▶ Bật hiệu ứng' : '⏸ Tạm dừng';
+  $('pauseBtn').innerHTML = paused ? '▶ <span class="txt">Bật hiệu ứng</span>' : '⏸ <span class="txt">Tạm dừng</span>';
   $('pauseBtn').className = paused ? 'primary' : '';
 
   const ss = s.session || { coins: 0, coinsPerHour: 0, gifters: 0 };
   $('sCoins').textContent = fmt(ss.coins);
-  $('sVnd').textContent = `${fmt(ss.coins * s.vndPerCoin)}đ`;
+  $('sVnd').textContent = `${fmt(ss.coins * s.vndPerCoin)} đ`;
   $('sRate').textContent = fmt(ss.coinsPerHour);
   $('sGifters').textContent = fmt(ss.gifters);
+  $('bCoins').textContent = s.session ? 'Ca hiện tại' : 'Chưa mở ca';
+  const todayTotal = s.todayByLocation.reduce((n, r) => n + (r.coins || 0), 0);
+  $('kToday').textContent = fmt(todayTotal);
+  $('bToday').textContent = `≈ ${fmt(todayTotal * s.vndPerCoin)} đ`;
   $('today').innerHTML = s.todayByLocation.length
-    ? 'Hôm nay: ' + s.todayByLocation.map((r) => `${esc(r.name)} <b>${fmt(r.coins)}</b> xu`).join(' · ')
-    : 'Hôm nay chưa có quà';
+    ? s.todayByLocation.map((r) => `${esc(r.name)} <span class="coins">${fmt(r.coins)} xu</span>`).join('<br>')
+    : '<span class="muted">Chưa có quà</span>';
 
   const active = s.alerts.active;
-  $('alerts').innerHTML = active.length
-    ? active.map((a) => `<div class="alert ${esc(a.level)}"><span>${esc(a.message)}</span><button data-dismiss="${esc(a.key)}">Ẩn</button></div>`).join('')
-    : '<span class="muted">Không có</span>';
+  $('alertBox').classList.toggle('show', active.length > 0);
+  $('alerts').innerHTML = active
+    .map((a) => `<div class="item"><span>${esc(a.message)}</span><button class="small" data-dismiss="${esc(a.key)}">Ẩn</button></div>`)
+    .join('');
 
   if (s.actions.length) {
     $('actions').innerHTML = s.actions
       .slice(-60)
       .reverse()
       .map(
-        (a) => `<div class="row"><span><span class="muted">${time(a.ts)}</span> ${a.user ? `<b>${esc(a.user.name)}</b>` : ''} <span class="tag">${esc(ACTION_VI[a.action] || a.action)}</span>
-          ${a.coins ? `<span class="coins">${fmt(a.coins)} xu</span>` : ''} ${esc(a.text)} ${a.test ? '<span class="tag">thử</span>' : ''}</span>
+        (a) => `<div class="row"><span><span class="t">${time(a.ts)}</span><span class="badge ${actionTone(a.action)}">${esc(ACTION_VI[a.action] || a.action)}</span>
+          ${a.user ? ` <b>${esc(a.user.name)}</b>` : ''} ${a.coins ? `<span class="coins">${fmt(a.coins)} xu</span>` : ''} ${esc(a.text)} ${a.test ? '<span class="badge">thử</span>' : ''}</span>
           ${a.user && !a.test ? `<button class="danger" data-block="${esc(a.user.id)}" data-name="${esc(a.user.name)}">Chặn</button>` : ''}</div>`,
       )
       .join('');
   }
 
+  $('blockedCount').textContent = s.blocked.length;
   $('blocked').innerHTML = s.blocked.length
-    ? s.blocked.map((b) => `<div class="row"><span>${esc(b.name || b.id)} <span class="muted">${esc(b.id)}</span></span><button data-unblock="${esc(b.id)}">Bỏ chặn</button></div>`).join('')
+    ? s.blocked.map((b) => `<div class="row"><span>${esc(b.name || b.id)} <span class="muted">${esc(b.id)}</span></span><button class="small" data-unblock="${esc(b.id)}">Bỏ chặn</button></div>`).join('')
     : '<span class="muted">Không có</span>';
 
-  $('logs').innerHTML = s.logs.map((l) => `<div class="row"><span><span class="muted">${time(l.ts)}</span> ${esc(l.msg)}</span><span class="tag">${esc(l.level)}</span></div>`).join('');
+  $('logs').innerHTML = s.logs
+    .map((l) => `<div class="row"><span><span class="t">${time(l.ts)}</span>${esc(l.msg)}</span><span class="badge ${LOG_TONE[l.level] || ''}">${esc(l.level)}</span></div>`)
+    .join('');
 }
 
 async function refresh() {
@@ -108,10 +140,13 @@ async function refresh() {
     render((await call('status')));
     const top = await call('leaderboard');
     $('top').innerHTML = top.today.length
-      ? top.today.map((p, i) => `<div class="row"><span>${i + 1}. ${esc(p.name)}</span><span class="coins">${fmt(p.coins)} xu</span></div>`).join('')
+      ? top.today
+          .map((p, i) => `<div class="row"><span><span class="rank ${i < 3 ? `r${i + 1}` : ''}">${i + 1}</span>${esc(p.name)}</span><span class="coins">${fmt(p.coins)} xu</span></div>`)
+          .join('')
       : '<span class="muted">Chưa có</span>';
   } catch (err) {
-    $('srcDot').className = 'dot error';
+    $('statusPill').className = 'pill error';
+    $('statusPill').textContent = 'Mất máy chủ';
     $('src').textContent = `Không kết nối được máy chủ (${err.message})`;
   }
 }
