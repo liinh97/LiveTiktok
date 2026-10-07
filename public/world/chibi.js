@@ -443,10 +443,12 @@ export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2, detai
       break;
     }
     case 'swing': {
-      // vung tay sang hai bên
+      // vung tay sang hai bên: bàn tay đi theo cung tròn quanh vai (tay luôn gần duỗi, không gập)
       const k = Math.sin(Math.PI * beat);
-      L = [lx - (10 + 8 * k) * s, sy + (16 - 12 * k) * s];
-      R = [rx + (10 - 8 * k) * s, sy + (16 + 12 * k) * s];
+      const aL = 0.35 + 0.55 * (1 + k) / 2; // góc lệch khỏi phương thẳng đứng
+      const aR = 0.35 + 0.55 * (1 - k) / 2;
+      L = [lx - Math.sin(aL) * 27 * s, sy + Math.cos(aL) * 27 * s];
+      R = [rx + Math.sin(aR) * 27 * s, sy + Math.cos(aR) * 27 * s];
       break;
     }
     case 'carry': // giơ thẳng hai tay đỡ vật trên đầu (khiêng quan tài)
@@ -467,13 +469,10 @@ export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2, detai
       break;
     }
     case 'noodle': {
-      // tay mì sợi: uốn lượn lung tung
-      const a = t * 9 + seed * 6;
-      L = [lx - 26 * s + Math.sin(a) * 10 * s, sy - 10 * s + Math.cos(a * 1.3) * 26 * s];
-      R = [rx + 26 * s + Math.sin(a + 2) * 10 * s, sy - 10 * s + Math.cos(a * 1.1 + 1) * 26 * s];
-      LC = [lx - 14 * s + Math.cos(a * 1.7) * 22 * s, sy + Math.sin(a * 2.1) * 22 * s];
-      RC = [rx + 14 * s + Math.cos(a * 1.9 + 1) * 22 * s, sy + Math.sin(a * 2.3 + 2) * 22 * s];
-      break;
+      // tay sợi mì kiểu hình nộm hơi trước cửa hàng: cả cánh tay uốn thành sóng chạy từ vai ra ngón tay
+      noodleArm(ctx, lx, sy, -1, s, parts, t + seed);
+      noodleArm(ctx, rx, sy, 1, s, parts, t + seed + 1.3);
+      return;
     }
     case 'walk': {
       // đánh tay khi đi bộ, ngược nhịp với chân
@@ -490,13 +489,13 @@ export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2, detai
   }
   const LS = [lx, sy];
   const RS = [rx, sy];
-  const LM = LC || pickJoint(LS, L, ARM_UP * s, ARM_LOW * s, -1, x);
-  const RM = RC || pickJoint(RS, R, ARM_UP * s, ARM_LOW * s, 1, x);
+  const LM = LC || softElbow(LS, L, s, -1, x);
+  const RM = RC || softElbow(RS, R, s, 1, x);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   // cẳng tay (màu da) vẽ trước, bắp tay (tay áo) đè lên ở khuỷu; gom 2 tay vào một lần vẽ cho nhanh
   ctx.strokeStyle = parts.skin;
-  ctx.lineWidth = 6.5 * s;
+  ctx.lineWidth = 7 * s;
   ctx.beginPath();
   ctx.moveTo(LM[0], LM[1]);
   ctx.lineTo(L[0], L[1]);
@@ -504,7 +503,7 @@ export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2, detai
   ctx.lineTo(R[0], R[1]);
   ctx.stroke();
   ctx.strokeStyle = parts.outfit;
-  ctx.lineWidth = 8.5 * s;
+  ctx.lineWidth = 8 * s;
   ctx.beginPath();
   ctx.moveTo(LS[0], LS[1]);
   ctx.lineTo(LM[0], LM[1]);
@@ -545,6 +544,67 @@ function joint(A, B, a, b, side) {
   return [A[0] + Math.cos(ang) * a, A[1] + Math.sin(ang) * a];
 }
 const clamp1 = (v) => Math.max(-1, Math.min(1, v));
+
+/**
+ * Khuỷu tay mềm kiểu hoạt hình: tay chỉ cong nhẹ ra ngoài, không bao giờ gập nhọn (nhìn như gãy).
+ * Độ cong lớn nhất ~5 đơn vị dù bàn tay ở gần hay xa vai; tay dài ngắn co giãn theo khoảng cách.
+ */
+function softElbow(A, B, s, outward, cx) {
+  const dx = B[0] - A[0];
+  const dy = B[1] - A[1];
+  const d = Math.hypot(dx, dy) || 0.001;
+  const reach = (ARM_UP + ARM_LOW) * s;
+  const bend = Math.min(5 * s, Math.max(1.5 * s, (reach - d) * 0.35)); // càng gần vai càng cong, nhưng có giới hạn
+  // pháp tuyến của đoạn vai -> tay, chọn phía chĩa ra xa thân
+  let nx = -dy / d;
+  let ny = dx / d;
+  const mx = A[0] + dx / 2;
+  const my = A[1] + dy / 2;
+  if ((mx + nx - cx) * outward < (mx - cx) * outward) {
+    nx = -nx;
+    ny = -ny;
+  }
+  return [mx + nx * bend, my + ny * bend];
+}
+
+/** Một cánh tay sợi mì: đường cong sóng mượt (không có khớp gãy), sóng chạy dọc tay theo thời gian. */
+function noodleArm(ctx, sx0, sy0, side, s, parts, t) {
+  const N = 9;
+  const len = 34 * s;
+  const lift = Math.sin(t * 2.3) * 0.5; // cả tay vẫy lên xuống chậm
+  const base = side > 0 ? -0.25 + lift : Math.PI + 0.25 - lift; // hướng chung: chếch lên, ra ngoài
+  const pts = [];
+  for (let i = 0; i <= N; i++) {
+    const u = i / N;
+    const wave = Math.sin(t * 9 - u * 5) * 0.75 * u; // sóng to dần về phía bàn tay
+    const ang = base - side * wave;
+    const prev = pts[i - 1] || [sx0, sy0];
+    pts.push(i === 0 ? [sx0, sy0] : [prev[0] + Math.cos(ang) * (len / N), prev[1] + Math.sin(ang) * (len / N)]);
+  }
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const curve = (from, to) => {
+    ctx.beginPath();
+    ctx.moveTo(pts[from][0], pts[from][1]);
+    for (let i = from + 1; i < to; i++) {
+      const mx = (pts[i][0] + pts[i + 1][0]) / 2;
+      const my = (pts[i][1] + pts[i + 1][1]) / 2;
+      ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my);
+    }
+    ctx.lineTo(pts[to][0], pts[to][1]);
+    ctx.stroke();
+  };
+  ctx.strokeStyle = parts.skin;
+  ctx.lineWidth = 7 * s;
+  curve(3, N);
+  ctx.strokeStyle = parts.outfit;
+  ctx.lineWidth = 8 * s;
+  curve(0, 4);
+  ctx.fillStyle = parts.skin;
+  ctx.beginPath();
+  ctx.arc(pts[N][0], pts[N][1], 4.8 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
 
 /** Chọn khớp giữa chĩa ra xa thân (khuỷu / gối hướng ra ngoài trông tự nhiên). */
 function pickJoint(A, B, a, b, outward, cx) {
