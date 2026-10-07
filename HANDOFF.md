@@ -34,7 +34,7 @@ cp .env.example .env        # sửa LIVE_SOURCE=tiktok, TIKTOK_USERNAME=diepvien
 docker compose up -d --build
 ```
 - Trang hiển thị (đưa vào OBS): `http://localhost:3000/world/`.
-  Tham số URL: `?max=150` (số nhân vật tối đa), `?vol=0.5` (âm lượng), `?tts=1` (đọc tên), `?cam=0` (tắt camera tự lia, đứng yên toàn cảnh).
+  Tham số URL: `?max=150` (số nhân vật tối đa), `?vol=0.5` (âm lượng), `?tts=1` (đọc tên), `?cam=0` (tắt camera tự lia, đứng yên toàn cảnh), `?voice=0` (tắt giọng đọc bình luận), `?voicevol=1.5` (to nhỏ giọng đọc).
 - Bảng điều khiển: `http://localhost:3000/dashboard/`.
   Có nút thử quà, ô chat thử với tên tuỳ chọn, "Thả 50 người vào", chặn người, tạm dừng.
 - Không dùng Docker (khi phát triển): Node 22, chạy `npm ci`, `npm start`, `npm run sim` (nguồn giả lập), `npm test`.
@@ -111,6 +111,13 @@ Nguồn sự kiện (tiktok | simulator) → src/sources/manager.js (tự kết 
 | `!troll <tên>` + quà | `troll.js` | Troll theo số xu. 1 xu: vỏ chuối / mặt ngáo / hoá khoai. 5 xu: T-pose bay / sâu đo. 20 xu: hoá gà. 30 xu: xì hơi tên lửa. 99 xu: khiêng quan tài |
 | `!khien` + quà | `troll.js` | Khiên 2 phút, troll vào bị dội ngược |
 | `!nhay ga\|sau\|tpose\|ngao\|deo\|hiphop` | `troll.js` | Điệu troll miễn phí, chờ 45 giây. `hiphop` = cả chuỗi breakdance (toprock, running man, cối xay gió, trồng chuối xoay, freeze) |
+
+### Giọng đọc bình luận (giữa đám đông)
+- Bình luận thường (không phải lệnh `!`) được đọc thành tiếng, phát **đúng chỗ nhân vật đứng**: xa thì nhỏ, đục, vang; gần thì to, rõ; trái/phải theo vị trí trên màn hình (camera lia thì tiếng chạy theo).
+- Nhiều người nói cùng lúc: tối đa 4 giọng, người vừa nói rõ nhất; nhạc tự hạ nhỏ khi có người nói. Quán đông (từ 12 người) có tiếng rì rầm nền.
+- Máy chủ: `src/tts.js` (Piper trên máy, dự phòng Google Dịch), file cache ở `data/tts`, phục vụ qua `/tts/<id>`. Cấu hình `config.json` → `tts`.
+- Docker tự cài Piper + 2 giọng tiếng Việt (vivos 65 người nói, 25hours) vào `/opt/piper` lúc build. Chạy không Docker: đặt `PIPER_DIR` trỏ tới thư mục có `piper/piper` và `voices/*.onnx`.
+- Trình duyệt: `public/world/voices.js` (Web Audio). Trên trình duyệt thường phải bấm vào trang một lần mới có tiếng (OBS thì không cần).
 
 ### Hoạt động tự động
 - **Mục tiêu chung** (`goal.js`): "Tháp trà sữa cả quán". Quà cộng dồn, đủ thì cả quán được thưởng, mục tiêu sau tăng dần.

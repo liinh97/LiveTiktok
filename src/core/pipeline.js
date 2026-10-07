@@ -139,7 +139,8 @@ export class Pipeline extends EventEmitter {
         const hit = this.rules.pickChat(location, text, (tierId) => this.tiers.atLeast(total, tierId));
         if (!hit) return this.drop();
         const shown = (hit.match ? hit.match[1] ?? hit.match[0] : text).slice(0, 80);
-        out.push(this.make(ctx, hit.rule, { text: shown }));
+        // speak: câu chat thường (không phải lệnh) được đọc thành tiếng giữa đám đông
+        out.push(this.make(ctx, hit.rule, { text: shown, speak: hit.match ? '' : shown }));
         break;
       }
       case 'gift': {

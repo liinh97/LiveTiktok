@@ -20,6 +20,7 @@ import { SourceManager } from './sources/manager.js';
 import { SimulatorSource } from './sources/simulator.js';
 import { TikTokSource } from './sources/tiktok.js';
 import { localTime } from './util.js';
+import { Tts } from './tts.js';
 
 const config = loadConfig();
 const locations = loadLocations();
@@ -181,7 +182,8 @@ const api = {
 };
 
 // ---- Máy chủ ----
-const server = createHttpServer({ config, api });
+const tts = new Tts(config.tts, config.dataDir);
+const server = createHttpServer({ config, api, tts });
 const hub = new Hub({
   server,
   onWorldConnect: (send) => send({ type: 'hello', state: worldState() }),
@@ -191,6 +193,11 @@ const hub = new Hub({
 });
 
 pipeline.on('action', (a) => {
+  // bình luận thường: làm giọng đọc ngay, trang hiển thị tải /tts/<id> khi nhận hành động
+  if (a.data?.speak && !pipeline.paused) {
+    const id = tts.request(a.data.speak, a.user?.id);
+    if (id) a.data.tts = `/tts/${id}`;
+  }
   hub.broadcast('world', { type: 'action', action: a });
   recentActions.push({
     seq: ++actionSeq,

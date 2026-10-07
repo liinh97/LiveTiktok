@@ -24,6 +24,7 @@
 
 import { drawArms, drawLegs, drawShadow, drawWings, FOOT_Y, HEAD_R, HEAD_Y, partsOf, renderChibi, renderTag, SPRITE_H, SPRITE_W } from './chibi.js';
 import { createFx } from './fx.js';
+import { CrowdVoices } from './voices.js';
 
 const W = 1080;
 const H = 1920;
@@ -37,6 +38,8 @@ const IDLE_LEAVE_SEC = 15 * 60;
 const SHOW_ALL_TAGS_UNDER = 60; // ít người thì hiện tên tất cả
 const DEFAULT_BPM = 120;
 const VOLUME = clampNum(Number(params.get('vol') ?? 0.8), 0, 1);
+const VOICE = params.get('voice') !== '0'; // ?voice=0: tắt giọng đọc bình luận
+const VOICE_VOL = clampNum(Number(params.get('voicevol') ?? 1), 0, 2);
 const AUTO_CAM = params.get('cam') !== '0'; // ?cam=0: camera đứng yên toàn cảnh (không tự lia)
 function clampNum(v, a, b) {
   return Number.isFinite(v) ? Math.max(a, Math.min(b, v)) : b;
@@ -731,6 +734,7 @@ function drawOverlay(c, showTag) {
   if (c.leaving) return;
   const s = scaleOf(c);
   const top = headTop(c);
+  if (c.talkUntil > now) drawTalk(c, c.x + (HEAD_R + 6) * s, top + HEAD_R * s, s);
   let y = top - 6;
   if (showTag) {
     const tag = tagOf(c);
@@ -1688,7 +1692,49 @@ function run(a) {
     console.error('Lỗi diễn hành động', a.action, err);
   }
   speak(a.say);
+  if (VOICE && a.data?.tts && a.user) talk(a.user, a.data.tts);
   return dur;
+}
+
+// ---------------- Giọng nói giữa đám đông ----------------
+const voices = new CrowdVoices({ volume: VOICE_VOL });
+/** Vị trí người nói nhìn từ camera: trái/phải, xa/gần, có trong khung hình không. */
+function spotOf(id) {
+  return () => {
+    const c = chars.get(id);
+    if (!c) return { pan: 0, depth: 0.2, onScreen: false };
+    const sx = (c.x - cam.x) * cam.z + W / 2;
+    const sy = (c.y - cam.y) * cam.z + H / 2;
+    const onScreen = sx > -40 && sx < W + 40 && sy > 0 && sy < H + 200;
+    // xa/gần: theo chỗ đứng trong quán (hàng sau nhỏ, hàng trước to) + camera đang zoom vào thì gần hơn
+    const near = clamp((scaleOf(c) - 0.5) / 0.6, 0, 1);
+    const zoom = onScreen ? clamp((cam.z - 1) * 0.45, 0, 0.5) : 0;
+    return { pan: (sx / W) * 2 - 1, depth: clamp(near + zoom, 0, 1), onScreen, focus: cam.target === c };
+  };
+}
+function talk(user, url) {
+  const id = String(user.id);
+  const c = chars.get(id);
+  const rate = 0.97 + ((c?.seed ?? Math.random()) % 1) * 0.07; // mỗi người cao giọng/trầm giọng khác nhau chút
+  voices.play(url, spotOf(id), { rate }).then((sec) => {
+    const ch = chars.get(id);
+    if (sec && ch) ch.talkUntil = now + sec;
+  });
+}
+/** Sóng âm nhỏ cạnh đầu người đang nói. */
+function drawTalk(c, x, y, s) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = Math.max(2, 3 * s);
+  for (let i = 0; i < 3; i++) {
+    const ph = (now * 3 + i / 3) % 1;
+    ctx.globalAlpha = (1 - ph) * 0.9;
+    ctx.beginPath();
+    ctx.arc(x, y, (10 + ph * 22) * s, -0.6, 0.6);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function pumpStage() {
@@ -1747,6 +1793,7 @@ const isTouch = matchMedia('(pointer: coarse)').matches;
 const canFullscreen = isTouch && !!document.documentElement.requestFullscreen;
 const needFullscreen = () => canFullscreen && !document.fullscreenElement;
 addEventListener('pointerdown', () => {
+  if (VOICE) voices.unlock();
   if (audioBlocked && audioSong) audio.play().then(() => (audioBlocked = false)).catch(() => {});
   if (needFullscreen()) {
     document.documentElement.requestFullscreen({ navigationUI: 'hide' })
@@ -2135,6 +2182,13 @@ function frame(ts) {
   last = ts;
   now += dt;
   beatPos += dt * ((currentSong()?.bpm || DEFAULT_BPM) / 60);
+  if (VOICE && voices.ctx) {
+    voices.update();
+    voices.ambience(chars.size);
+    // có người nói: nhạc nhỏ xuống một chút cho nghe rõ lời, nói xong nhạc lên lại từ từ
+    const target = VOLUME * (voices.speaking ? 0.55 : 1);
+    audio.volume = clamp(audio.volume + (target - audio.volume) * Math.min(1, dt * (voices.speaking ? 6 : 1.5)), 0, 1);
+  }
   ctx.clearRect(0, 0, W, H);
 
   if (scene && state.location) {
@@ -2152,7 +2206,7 @@ function frame(ts) {
     const all = list.length <= SHOW_ALL_TAGS_UNDER;
     for (const c of list) {
       const show = c.npc ? Boolean(c.label) : all || now < c.busyUntil || c.viewer?.tier?.rank >= 2 || c.look?.wings || c === cam.target || c.viewer?.id === trollLeader()?.id;
-      if (show || c.bubble || c.emote) drawOverlay(c, show);
+      if (show || c.bubble || c.emote || c.talkUntil > now) drawOverlay(c, show);
     }
     fx.update(dt);
     fx.draw('over');
@@ -2208,4 +2262,4 @@ function onFeatures() {
 }
 
 // Cho phép thử nhanh trên trình duyệt: window.world
-window.world = { w, handle, cam, get state() { return state; }, get media() { return media; } };
+window.world = { w, handle, cam, voices, get state() { return state; }, get media() { return media; } };

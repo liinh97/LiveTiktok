@@ -26,7 +26,7 @@ const MIME = {
 const PUBLIC = path.join(ROOT, 'public');
 const LOCATIONS = path.join(ROOT, 'locations');
 
-export function createHttpServer({ config, api }) {
+export function createHttpServer({ config, api, tts }) {
   const avatars = new AvatarProxy(config.avatarHosts || []);
 
   const server = http.createServer(async (req, res) => {
@@ -40,6 +40,11 @@ export function createHttpServer({ config, api }) {
       if (p === '/avatar') return avatars.serve(url.searchParams.get('u'), res);
       if (p.startsWith('/api/')) return handleApi(req, res, url, p.slice(5), config, api);
       if (p.startsWith('/locations/')) return serveFile(res, LOCATIONS, p.slice('/locations/'.length), req);
+      if (p.startsWith('/tts/') && tts) {
+        // giọng đọc bình luận: đợi làm xong (vài trăm ms) rồi gửi file
+        const file = await tts.waitFile(p.slice(5));
+        return file ? serveFile(res, path.dirname(file), path.basename(file), req) : send(res, 404, 'Không tìm thấy');
+      }
       if (p.startsWith('/world/') || p.startsWith('/dashboard/')) {
         return serveFile(res, PUBLIC, p.endsWith('/') ? `${p}index.html` : p, req);
       }

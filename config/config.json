@@ -51,6 +51,15 @@
 
   "telegram": { "botToken": "", "chatId": "" },
 
+  "tts": {
+    "_ghi_chu": "Đọc bình luận thành tiếng giữa đám đông. provider: auto (Piper trên máy nếu có, không thì Google Dịch) | piper | google | off. maxConcurrent: số câu làm giọng cùng lúc (quán đông thì bớt câu).",
+    "enabled": true,
+    "provider": "auto",
+    "piperDir": "/opt/piper",
+    "maxConcurrent": 3,
+    "maxFiles": 400
+  },
+
   "avatarHosts": ["tiktokcdn.com", "tiktokcdn-us.com", "tiktokcdn-eu.com", "ibyteimg.com", "byteimg.com", "muscdn.com"],
 
   "dashboardToken": ""
