@@ -37,6 +37,7 @@ const IDLE_LEAVE_SEC = 15 * 60;
 const SHOW_ALL_TAGS_UNDER = 60; // ít người thì hiện tên tất cả
 const DEFAULT_BPM = 120;
 const VOLUME = clampNum(Number(params.get('vol') ?? 0.8), 0, 1);
+const AUTO_CAM = params.get('cam') !== '0'; // ?cam=0: camera đứng yên toàn cảnh (không tự lia)
 function clampNum(v, a, b) {
   return Number.isFinite(v) ? Math.max(a, Math.min(b, v)) : b;
 }
@@ -63,7 +64,7 @@ let transition = null;
 let now = 0; // giây
 let beatPos = 0; // số nhịp nhạc đã trôi (theo bpm bài đang phát)
 let clockOffset = 0; // giờ máy chủ - giờ máy này (ms)
-const cam = { x: W / 2, y: H / 2, z: 1, target: null, until: 0, queue: [] };
+const cam = { x: W / 2, y: H / 2, z: 1, r: 0, target: null, until: 0, queue: [] };
 
 const fx = createFx({ ctx, W, H, clock: () => now });
 
@@ -258,7 +259,7 @@ const w = {
   },
   /** Điệu nhảy cho nhân vật trong ms mili giây (vd. cả quán cùng nhảy tưng tưng). */
   dance(c, move, ms = 4000) {
-    c.dance = { move, start: now, until: now + ms / 1000 };
+    c.dance = { move, start: now, until: now + ms / 1000, beat0: beatPos };
   },
   say(c, t, ms = 4000) {
     c.bubble = { text: t, until: now + ms / 1000 };
@@ -358,10 +359,17 @@ function danceOf(c) {
       m.arms = 'pump';
       break;
     case 'spin': {
-      const p = clamp((now - c.dance.start) / (c.dance.until - c.dance.start), 0, 1);
-      m.sx = Math.cos(p * Math.PI * 2);
-      m.dy = Math.sin(p * Math.PI) * 10;
-      m.arms = 'cheer';
+      // xoay như chong chóng: mỗi nhịp một vòng, vừa xoay vừa nảy
+      m.sx = Math.cos((beat - (c.dance.beat0 ?? 0)) * Math.PI * 2);
+      m.dy = b * 10;
+      m.arms = Math.floor(beat) % 2 ? 'cheer' : 'tpose';
+      break;
+    }
+    case 'heli': {
+      // trực thăng: giơ tay chữ T, xoay nhanh gấp đôi, nhấc lên khỏi sàn
+      m.sx = Math.cos((beat - (c.dance.beat0 ?? 0)) * Math.PI * 4);
+      m.dy = 10 + b * 14;
+      m.arms = 'tpose';
       break;
     }
     default:
@@ -490,10 +498,12 @@ function updateChars(dt) {
     const target = (c.size ? c.size / sceneScale(c.y) : c.look?.scale || 1) * (c.effect?.grow || 1);
     c.sm += (target - c.sm) * Math.min(1, dt * 5);
     if (c.pose && now >= c.poseUntil) c.pose = null;
-    // tự đổi điệu nhảy sau vài giây (thỉnh thoảng xoay một vòng)
+    // tự đổi điệu nhảy sau vài giây (khá hay xoay vài vòng như chong chóng)
     if (!c.dance || now > c.dance.until) {
-      const spin = Math.random() < 0.05;
-      c.dance = { move: spin ? 'spin' : pickDance(), start: now, until: now + (spin ? 1 : rand(4, 8)) };
+      const r = Math.random();
+      const spin = r < 0.14 ? 'spin' : r < 0.18 ? 'heli' : null;
+      const beatSec = 60 / (currentSong()?.bpm || DEFAULT_BPM);
+      c.dance = { move: spin || pickDance(), start: now, until: now + (spin ? beatSec * (2 + Math.floor(rand(0, 3))) : rand(4, 8)), beat0: beatPos };
     }
     // nhảy 1 cái
     c.jumpY = 0;
@@ -1619,31 +1629,122 @@ function sendWorld(msg) {
 }
 
 // ---------------- Camera ----------------
+// Đạo diễn camera tự động (kiểu quay MV): mỗi cảnh dài 8 hoặc 16 nhịp, đổi cảnh đúng phách,
+// lúc cắt thẳng lúc lia mượt. Cảnh là 2 khung hình {x, y, z, r} (tâm, độ zoom, độ nghiêng), máy quay đi từ khung đầu tới khung cuối.
+// Scene có thể khai báo điểm nhấn trong scene.camPoints: { dj, ceiling, stage, crowd } (toạ độ thế giới).
+const dir = { shot: null, t0: 0, dur: 1, cut: false, from: null, n: 0 };
+const easeIO = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+function camPoints() {
+  const p = scene?.camPoints || {};
+  return {
+    dj: p.dj || { x: W * 0.25, y: H * 0.47 },
+    ceiling: p.ceiling || { x: W / 2, y: H * 0.17 },
+    stage: p.stage || { x: W / 2, y: H * 0.47 },
+    crowd: p.crowd || { x: W / 2, y: H * 0.68 },
+  };
+}
+function randomViewer() {
+  const list = [...chars.values()].filter((c) => !c.npc && !c.leaving);
+  return list[Math.floor(Math.random() * list.length)];
+}
+// Danh sách cảnh: trả về [khung đầu, khung cuối]
+const SHOTS = [
+  ['wide', 3, (P) => [{ x: W / 2, y: H / 2, z: 1.04, r: -0.012 }, { x: W / 2, y: H / 2, z: 1.1, r: 0.012 }]],
+  ['panRight', 3, (P) => [{ x: W * 0.3, y: P.crowd.y - 60, z: 1.5, r: -0.035 }, { x: W * 0.7, y: P.crowd.y - 20, z: 1.5, r: 0.035 }]],
+  ['panLeft', 3, (P) => [{ x: W * 0.72, y: P.stage.y + 120, z: 1.45, r: 0.035 }, { x: W * 0.28, y: P.stage.y + 160, z: 1.45, r: -0.035 }]],
+  ['tiltDown', 2, (P) => [{ x: W / 2, y: P.ceiling.y + 80, z: 1.55, r: 0.02 }, { x: W / 2, y: P.crowd.y, z: 1.3, r: -0.02 }]],
+  ['dj', 2, (P) => [{ x: P.dj.x + 80, y: P.dj.y - 10, z: 1.7, r: 0.05 }, { x: P.dj.x, y: P.dj.y - 30, z: 2.15, r: -0.02 }]],
+  ['pullOut', 2, (P) => [{ x: W / 2, y: P.stage.y, z: 2.1, r: 0.06 }, { x: W / 2, y: H / 2, z: 1.05, r: 0 }]],
+  ['dutch', 2, (P) => [{ x: W * 0.4, y: P.crowd.y - 120, z: 1.35, r: -0.08 }, { x: W * 0.6, y: P.crowd.y - 160, z: 1.4, r: 0.08 }]],
+  ['viewer', 3, () => {
+    const c = randomViewer();
+    if (!c) return null;
+    return [{ x: c.x - 60, y: headTop(c) + 40, z: 1.7, r: -0.04, follow: c }, { x: c.x + 40, y: headTop(c) + 20, z: 2, r: 0.03, follow: c }];
+  }],
+];
+const SHOT_SUM = SHOTS.reduce((a, s) => a + s[1], 0);
+function nextShot() {
+  const bpm = currentSong()?.bpm || DEFAULT_BPM;
+  for (let tries = 0; tries < 6; tries++) {
+    let r = Math.random() * SHOT_SUM;
+    const def = SHOTS.find((s) => (r -= s[1]) <= 0) || SHOTS[0];
+    if (def[0] === dir.shot?.name && tries < 5) continue; // không lặp lại cảnh vừa quay
+    const kf = def[2](camPoints());
+    if (!kf) continue;
+    // cảnh toàn cảnh xen kẽ thường xuyên để người xem thấy cả quán
+    const beats = def[0] === 'wide' || Math.random() < 0.35 ? 16 : 8;
+    dir.shot = { name: def[0], a: kf[0], b: kf[1] };
+    dir.t0 = now;
+    dir.dur = Math.max(3.2, (beats * 60) / bpm);
+    dir.cut = Math.random() < 0.55; // cắt thẳng (kiểu MV) hoặc lia mượt từ chỗ đang đứng
+    dir.from = { x: cam.x, y: cam.y, z: cam.z, r: cam.r };
+    dir.n++;
+    return;
+  }
+}
+function directorTarget() {
+  if (!dir.shot || now - dir.t0 >= dir.dur) nextShot();
+  const { a, b } = dir.shot;
+  const p = easeIO(clamp((now - dir.t0) / dir.dur, 0, 1));
+  const f = a.follow && chars.has(a.follow.id) ? a.follow : null;
+  const fx0 = f ? f.x - (a.x + b.x) / 2 : 0; // bám theo nhân vật đang di chuyển
+  const fy0 = f ? headTop(f) + 30 - (a.y + b.y) / 2 : 0;
+  let t = { x: a.x + (b.x - a.x) * p + fx0, y: a.y + (b.y - a.y) * p + fy0, z: a.z + (b.z - a.z) * p, r: a.r + (b.r - a.r) * p };
+  if (!dir.cut) {
+    // lia mượt: 1.2 giây đầu đi từ chỗ cũ sang khung cảnh mới
+    const m = easeIO(clamp((now - dir.t0) / 1.2, 0, 1));
+    const o = dir.from;
+    t = { x: o.x + (t.x - o.x) * m, y: o.y + (t.y - o.y) * m, z: o.z + (t.z - o.z) * m, r: o.r + (t.r - o.r) * m };
+  }
+  return t;
+}
+
+let lastShotN = 0;
 function updateCamera(dt) {
   if ((!cam.target || now > cam.until) && cam.queue.length) {
     const next = cam.queue.shift();
     cam.target = next.c;
     cam.until = now + next.ms / 1000;
   }
-  if (cam.target && (now > cam.until || !chars.has(cam.target.id))) cam.target = null;
-  const tz = cam.target ? 2.1 : 1;
-  const tx = cam.target ? cam.target.x : W / 2;
-  // đặt đầu nhân vật hơi dưới giữa khung, chừa chỗ cho banner phía trên
-  const ty = cam.target ? headTop(cam.target) - 40 / Math.max(cam.z, 1) : H / 2;
-  const k = Math.min(1, dt * 3.5);
-  cam.z += (tz - cam.z) * k;
-  cam.x += (tx - cam.x) * k;
-  cam.y += (ty - cam.y) * k;
-  // không để lộ ra ngoài khung
-  const hw = W / 2 / cam.z;
-  const hh = H / 2 / cam.z;
-  cam.x = clamp(cam.x, hw, W - hw);
-  cam.y = clamp(cam.y, hh, H - hh);
+  if (cam.target && (now > cam.until || !chars.has(cam.target.id))) {
+    cam.target = null;
+    dir.shot = null; // hết zoom quà: quay lại đạo diễn bằng một cú lia mượt
+  }
+  let t;
+  let k = Math.min(1, dt * 3.5);
+  if (cam.target) {
+    // đặt đầu nhân vật hơi dưới giữa khung, chừa chỗ cho banner phía trên
+    t = { x: cam.target.x, y: headTop(cam.target) - 40 / Math.max(cam.z, 1), z: 2.1, r: 0 };
+  } else if (AUTO_CAM && !transition) {
+    t = directorTarget();
+    if (dir.cut && dir.n !== lastShotN) k = 1; // cắt cảnh: nhảy thẳng tới khung mới
+    else k = Math.min(1, dt * 8); // khung đã tính mượt sẵn, chỉ làm dịu thêm chút
+    lastShotN = dir.n;
+  } else {
+    t = { x: W / 2, y: H / 2, z: 1, r: 0 };
+  }
+  cam.z += (t.z - cam.z) * k;
+  cam.x += (t.x - cam.x) * k;
+  cam.y += (t.y - cam.y) * k;
+  cam.r += (t.r - cam.r) * k;
 }
 function applyCamera() {
+  // nhún theo tiếng kick: mỗi phách zoom vào một chút rồi nhả ra
+  const kick = AUTO_CAM && currentSong() ? Math.pow(1 - (beatPos % 1), 5) : 0;
+  const r = cam.r;
+  const cos = Math.cos(Math.abs(r));
+  const sin = Math.sin(Math.abs(r));
+  // nghiêng hình mà không lộ mép ngoài khung: zoom tối thiểu + giữ tâm trong vùng an toàn
+  const zMin = Math.max(cos + (H / W) * sin, cos + (W / H) * sin);
+  const z = Math.max(cam.z * (1 + kick * 0.022), zMin + 0.005);
+  const hw = ((W / 2) * cos + (H / 2) * sin) / z;
+  const hh = ((W / 2) * sin + (H / 2) * cos) / z;
+  const x = clamp(cam.x, hw, W - hw);
+  const y = clamp(cam.y + kick * 4, hh, H - hh);
   ctx.translate(W / 2, H / 2);
-  ctx.scale(cam.z, cam.z);
-  ctx.translate(-cam.x, -cam.y);
+  ctx.rotate(r);
+  ctx.scale(z, z);
+  ctx.translate(-x, -y);
 }
 
 // ---------------- Hạt đơn giản, đồ bay, chữ nổi ----------------

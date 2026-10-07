@@ -34,7 +34,7 @@ cp .env.example .env        # sửa LIVE_SOURCE=tiktok, TIKTOK_USERNAME=diepvien
 docker compose up -d --build
 ```
 - Trang hiển thị (đưa vào OBS): `http://localhost:3000/world/`.
-  Tham số URL: `?max=150` (số nhân vật tối đa), `?vol=0.5` (âm lượng), `?tts=1` (đọc tên).
+  Tham số URL: `?max=150` (số nhân vật tối đa), `?vol=0.5` (âm lượng), `?tts=1` (đọc tên), `?cam=0` (tắt camera tự lia, đứng yên toàn cảnh).
 - Bảng điều khiển: `http://localhost:3000/dashboard/`.
   Có nút thử quà, ô chat thử với tên tuỳ chọn, "Thả 50 người vào", chặn người, tạm dừng.
 - Không dùng Docker (khi phát triển): Node 22, chạy `npm ci`, `npm start`, `npm run sim` (nguồn giả lập), `npm test`.

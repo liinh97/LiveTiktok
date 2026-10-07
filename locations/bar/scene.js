@@ -392,6 +392,13 @@ export default {
   walkPath: WALK,
   source: { x: 540, y: COUNTER_Y - 30 },
   scaleAt,
+  // Điểm nhấn cho camera tự lia: bàn DJ, giàn đèn trần, quầy bar, giữa đám đông
+  camPoints: {
+    dj: { x: 190, y: COUNTER_Y - 70 },
+    ceiling: { x: 540, y: 300 },
+    stage: { x: 540, y: COUNTER_Y - 40 },
+    crowd: { x: 540, y: 1360 },
+  },
 
   /** Nhân vật phụ: bartender, DJ, 2 bồi bàn, các dancer linh vật nhảy trên quầy. */
   setup(w) {
@@ -420,10 +427,10 @@ export default {
     lastT = t;
     if (t > nextDrop) {
       nextDrop = t + 35 + Math.random() * 20;
-      const kind = ['wave', 'hop', 'clap'][Math.floor(Math.random() * 3)];
+      const kind = ['wave', 'hop', 'clap', 'spin', 'heli'][Math.floor(Math.random() * 5)];
       for (const c of w.chars) {
         if (kind === 'wave') setTimeout(() => w.pose(c, 'cheer', 3500), (c.x / w.W) * 1200); // làn sóng giơ tay
-        else w.dance(c, kind, 4000); // cả quán nhảy tưng tưng / vỗ tay cùng nhịp
+        else w.dance(c, kind, 4000); // cả quán nhảy tưng tưng / vỗ tay / xoay chong chóng cùng nhịp
       }
       w.fx.flash({ alpha: 0.18, ms: 400 });
       w.fx.wash({ color: MAGENTA, ms: 4000, alpha: 0.14 });
