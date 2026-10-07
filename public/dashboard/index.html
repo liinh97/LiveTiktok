@@ -60,8 +60,11 @@
     .badge.info { background: rgba(96,165,250,.15); color: #93c5fd; }
     .badge.purple { background: rgba(167,139,250,.16); color: #c4b5fd; }
 
-    .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
-    .col { display: grid; gap: 14px; min-width: 0; }
+    .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
+    .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    /* Khung cuối mỗi cột giãn ra lấp chỗ trống: 2 cột luôn bằng đáy */
+    .card.grow { flex: 1; display: flex; flex-direction: column; }
+    .card.grow .log { flex: 1 1 0; height: 0; min-height: 240px; max-height: none; }
     .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
     .card-h { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
     .card-h h2 { margin: 0; font-size: 14px; font-weight: 700; flex: 1; }
@@ -104,6 +107,7 @@
     @media (max-width: 1200px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (max-width: 900px) {
       .grid { grid-template-columns: minmax(0, 1fr); }
+      .card.grow .log { flex: none; height: auto; min-height: 0; max-height: 360px; }
       .brand span { display: none; }
     }
     @media (max-width: 600px) {
@@ -204,6 +208,11 @@
         </section>
 
         <section class="card">
+          <div class="card-h"><h2>🚫 Đã chặn</h2><span class="count" id="blockedCount">0</span></div>
+          <div id="blocked"><span class="muted">Không có</span></div>
+        </section>
+
+        <section class="card grow">
           <div class="card-h"><h2>⚡ Hoạt động gần đây</h2></div>
           <div class="log" id="actions"><span class="muted">Chưa có</span></div>
         </section>
@@ -225,12 +234,7 @@
           <div id="top"><span class="muted">Chưa có</span></div>
         </section>
 
-        <section class="card">
-          <div class="card-h"><h2>🚫 Đã chặn</h2><span class="count" id="blockedCount">0</span></div>
-          <div id="blocked"><span class="muted">Không có</span></div>
-        </section>
-
-        <section class="card">
+        <section class="card grow">
           <div class="card-h"><h2>🧾 Nhật ký hệ thống</h2></div>
           <div class="log" id="logs"></div>
         </section>
