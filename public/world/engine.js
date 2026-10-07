@@ -1629,8 +1629,8 @@ function sendWorld(msg) {
 }
 
 // ---------------- Camera ----------------
-// Đạo diễn camera tự động (kiểu quay MV): mỗi cảnh dài 8 hoặc 16 nhịp, đổi cảnh đúng phách,
-// lúc cắt thẳng lúc lia mượt. Cảnh là 2 khung hình {x, y, z, r} (tâm, độ zoom, độ nghiêng), máy quay đi từ khung đầu tới khung cuối.
+// Đạo diễn camera tự động: mỗi cảnh dài 16 hoặc 32 nhịp (tối thiểu 8 giây), chủ yếu lia chậm từ trái qua phải,
+// đổi cảnh bằng cú lia mượt 3 giây. Cảnh là 2 khung hình {x, y, z, r} (tâm, độ zoom, độ nghiêng), máy quay đi từ khung đầu tới khung cuối.
 // Scene có thể khai báo điểm nhấn trong scene.camPoints: { dj, ceiling, stage, crowd } (toạ độ thế giới).
 const dir = { shot: null, t0: 0, dur: 1, cut: false, from: null, n: 0 };
 const easeIO = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -1649,14 +1649,14 @@ function randomViewer() {
 }
 // Danh sách cảnh: trả về [khung đầu, khung cuối]
 const SHOTS = [
-  ['wide', 3, (P) => [{ x: W / 2, y: H / 2, z: 1.04, r: -0.012 }, { x: W / 2, y: H / 2, z: 1.1, r: 0.012 }]],
-  ['panRight', 3, (P) => [{ x: W * 0.3, y: P.crowd.y - 60, z: 1.5, r: -0.035 }, { x: W * 0.7, y: P.crowd.y - 20, z: 1.5, r: 0.035 }]],
-  ['panLeft', 3, (P) => [{ x: W * 0.72, y: P.stage.y + 120, z: 1.45, r: 0.035 }, { x: W * 0.28, y: P.stage.y + 160, z: 1.45, r: -0.035 }]],
-  ['tiltDown', 2, (P) => [{ x: W / 2, y: P.ceiling.y + 80, z: 1.55, r: 0.02 }, { x: W / 2, y: P.crowd.y, z: 1.3, r: -0.02 }]],
-  ['dj', 2, (P) => [{ x: P.dj.x + 80, y: P.dj.y - 10, z: 1.7, r: 0.05 }, { x: P.dj.x, y: P.dj.y - 30, z: 2.15, r: -0.02 }]],
-  ['pullOut', 2, (P) => [{ x: W / 2, y: P.stage.y, z: 2.1, r: 0.06 }, { x: W / 2, y: H / 2, z: 1.05, r: 0 }]],
-  ['dutch', 2, (P) => [{ x: W * 0.4, y: P.crowd.y - 120, z: 1.35, r: -0.08 }, { x: W * 0.6, y: P.crowd.y - 160, z: 1.4, r: 0.08 }]],
-  ['viewer', 3, () => {
+  ['wide', 2, (P) => [{ x: W / 2, y: H / 2, z: 1.04, r: -0.012 }, { x: W / 2, y: H / 2, z: 1.1, r: 0.012 }]],
+  ['panRight', 6, (P) => [{ x: W * 0.3, y: P.crowd.y - 60, z: 1.45, r: -0.015 }, { x: W * 0.7, y: P.crowd.y - 40, z: 1.45, r: 0.015 }]],
+  ['panLeft', 2, (P) => [{ x: W * 0.7, y: P.stage.y + 140, z: 1.4, r: 0.015 }, { x: W * 0.3, y: P.stage.y + 160, z: 1.4, r: -0.015 }]],
+  ['tiltDown', 1, (P) => [{ x: W / 2, y: P.ceiling.y + 80, z: 1.55, r: 0.02 }, { x: W / 2, y: P.crowd.y, z: 1.3, r: -0.02 }]],
+  ['dj', 1, (P) => [{ x: P.dj.x + 80, y: P.dj.y - 10, z: 1.7, r: 0.05 }, { x: P.dj.x, y: P.dj.y - 30, z: 2.15, r: -0.02 }]],
+  ['pullOut', 1, (P) => [{ x: W / 2, y: P.stage.y, z: 2.1, r: 0.06 }, { x: W / 2, y: H / 2, z: 1.05, r: 0 }]],
+  ['dutch', 0, (P) => [{ x: W * 0.4, y: P.crowd.y - 120, z: 1.35, r: -0.08 }, { x: W * 0.6, y: P.crowd.y - 160, z: 1.4, r: 0.08 }]],
+  ['viewer', 1, () => {
     const c = randomViewer();
     if (!c) return null;
     return [{ x: c.x - 60, y: headTop(c) + 40, z: 1.7, r: -0.04, follow: c }, { x: c.x + 40, y: headTop(c) + 20, z: 2, r: 0.03, follow: c }];
@@ -1672,11 +1672,11 @@ function nextShot() {
     const kf = def[2](camPoints());
     if (!kf) continue;
     // cảnh toàn cảnh xen kẽ thường xuyên để người xem thấy cả quán
-    const beats = def[0] === 'wide' || Math.random() < 0.35 ? 16 : 8;
+    const beats = def[0].startsWith('pan') || Math.random() < 0.4 ? 32 : 16;
     dir.shot = { name: def[0], a: kf[0], b: kf[1] };
     dir.t0 = now;
-    dir.dur = Math.max(3.2, (beats * 60) / bpm);
-    dir.cut = Math.random() < 0.55; // cắt thẳng (kiểu MV) hoặc lia mượt từ chỗ đang đứng
+    dir.dur = Math.max(8, (beats * 60) / bpm);
+    dir.cut = false; // luôn lia mượt từ chỗ đang đứng sang cảnh mới (cắt thẳng nhìn giật)
     dir.from = { x: cam.x, y: cam.y, z: cam.z, r: cam.r };
     dir.n++;
     return;
@@ -1685,14 +1685,14 @@ function nextShot() {
 function directorTarget() {
   if (!dir.shot || now - dir.t0 >= dir.dur) nextShot();
   const { a, b } = dir.shot;
-  const p = easeIO(clamp((now - dir.t0) / dir.dur, 0, 1));
+  const p = clamp((now - dir.t0) / dir.dur, 0, 1); // đi đều tốc độ, chậm rãi (đầu cảnh đã có cú lia mượt)
   const f = a.follow && chars.has(a.follow.id) ? a.follow : null;
   const fx0 = f ? f.x - (a.x + b.x) / 2 : 0; // bám theo nhân vật đang di chuyển
   const fy0 = f ? headTop(f) + 30 - (a.y + b.y) / 2 : 0;
   let t = { x: a.x + (b.x - a.x) * p + fx0, y: a.y + (b.y - a.y) * p + fy0, z: a.z + (b.z - a.z) * p, r: a.r + (b.r - a.r) * p };
   if (!dir.cut) {
-    // lia mượt: 1.2 giây đầu đi từ chỗ cũ sang khung cảnh mới
-    const m = easeIO(clamp((now - dir.t0) / 1.2, 0, 1));
+    // lia mượt: 3 giây đầu đi từ từ từ chỗ cũ sang khung cảnh mới
+    const m = easeIO(clamp((now - dir.t0) / 3, 0, 1));
     const o = dir.from;
     t = { x: o.x + (t.x - o.x) * m, y: o.y + (t.y - o.y) * m, z: o.z + (t.z - o.z) * m, r: o.r + (t.r - o.r) * m };
   }
