@@ -295,7 +295,7 @@
       "reward": "tower"
     },
     "troll": {
-      "_ghi_chu": "!troll <tên> + tặng quà: troll người đó (quà càng to trò càng nặng, minCoins = số xu tối thiểu). !khien + tặng quà: khiên chống troll (dội ngược). !nhay <điệu>: tự nhảy điệu troll miễn phí. effect của dances: chicken | worm | tpose | derp | noodle.",
+      "_ghi_chu": "!troll <tên> + tặng quà: troll người đó (quà càng to trò càng nặng, minCoins = số xu tối thiểu). !khien + tặng quà: khiên chống troll (dội ngược). !nhay <điệu>: tự nhảy điệu troll miễn phí. effect của dances: chicken | worm | tpose | derp | noodle | breaking (chuỗi breakdance).",
       "creditSec": 90,
       "shieldSec": 120,
       "selfCooldownSec": 45,
@@ -399,6 +399,18 @@
             "dẻo",
             "tay deo",
             "mi"
+          ]
+        },
+        {
+          "id": "hiphop",
+          "name": "Breakdance",
+          "emoji": "🕺",
+          "effect": "breaking",
+          "aliases": [
+            "break",
+            "breakdance",
+            "bboy",
+            "hip hop"
           ]
         }
       ]

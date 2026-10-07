@@ -16,6 +16,9 @@ const HAIR = ['#1d1b20', '#2b2421', '#4a2c1c', '#7a4a28', '#c89448', '#efd9a6', 
 const OUTFIT = ['#e53935', '#fb8c00', '#fdd835', '#43a047', '#00897b', '#039be5', '#3949ab', '#8e24aa', '#d81b60', '#f4f4f4', '#263238', '#795548'];
 const PANTS = ['#263238', '#37474f', '#1a237e', '#4e342e', '#424242', '#283593'];
 const HAIRSTYLES = ['short', 'spiky', 'long', 'bun', 'twin', 'bowl', 'cap', 'mohawk'];
+const HATS = [null, null, null, 'snapback', 'snapback', 'beanie', 'hood']; // mũ đội lên tóc (hip-hop)
+const SHOES = ['#e53935', '#1e88e5', '#fdd835', '#212121', '#f5f5f5', '#43a047', '#fb8c00', '#8e24aa'];
+const OUT = '#231a2e'; // màu viền nét (kiểu tranh hoạt hình)
 const ACCESSORY = ['none', 'none', 'none', 'glasses', 'headphones', 'bow', 'shades'];
 const FACES = ['dot', 'happy', 'wink', 'cat', 'surprised'];
 
@@ -43,6 +46,12 @@ export function partsOf(style) {
     accessory: pickFrom(r, ACCESSORY),
     face: pickFrom(r, FACES),
     shirt: pickFrom(r, ['plain', 'stripe', 'collar', 'heart']),
+    // thêm sau cùng: không làm đổi các phần ở trên của nhân vật cũ
+    hat: pickFrom(r, HATS),
+    hatColor: pickFrom(r, OUTFIT),
+    shoe: pickFrom(r, SHOES),
+    tee: pickFrom(r, ['plain', 'raglan', 'jersey', 'plain']),
+    num: 1 + Math.floor(r() * 99),
   };
 }
 
@@ -57,33 +66,18 @@ export function renderChibi(parts, avatar, res = 1.25) {
   const hy = HEAD_Y;
 
   // Chân + bóng không vẽ sẵn ở đây: vẽ mỗi khung hình bằng drawLegs() để gập gối, bước, đá chân.
-  // Đáy quần (hông) để chân nối vào cho liền
+  g.lineJoin = 'round';
+  g.lineCap = 'round';
+  // Lưng quần (hông) để chân nối vào cho liền
   g.fillStyle = parts.pants;
+  g.strokeStyle = OUT;
+  g.lineWidth = 1.8;
   g.beginPath();
-  g.roundRect(36, 104, 28, 12, [2, 2, 6, 6]);
+  g.roundRect(35, 103, 30, 13, [2, 2, 7, 7]);
   g.fill();
+  g.stroke();
 
-  // thân áo
-  g.fillStyle = parts.outfit;
-  g.beginPath();
-  g.roundRect(31, 74, 38, 40, [14, 14, 8, 8]);
-  g.fill();
-  g.fillStyle = parts.outfit2;
-  if (parts.shirt === 'stripe') {
-    g.fillRect(31, 88, 38, 5);
-    g.fillRect(31, 99, 38, 5);
-  } else if (parts.shirt === 'collar') {
-    g.beginPath();
-    g.moveTo(42, 74);
-    g.lineTo(50, 84);
-    g.lineTo(58, 74);
-    g.closePath();
-    g.fill();
-  } else if (parts.shirt === 'heart') {
-    g.font = '14px sans-serif';
-    g.textAlign = 'center';
-    g.fillText('♥', 50, 98);
-  }
+  torso(g, parts);
 
   // linh vật (dancer): đầu thú thay cho đầu người
   if (parts.costume) {
@@ -91,14 +85,52 @@ export function renderChibi(parts, avatar, res = 1.25) {
     return c;
   }
 
-  // tóc phía sau đầu
-  g.fillStyle = parts.hair;
-  hairBack(g, parts.hairStyle, hx, hy);
+  const hat = parts.hat;
+  // mũ trùm (hoodie) phía sau đầu, hoặc tóc phía sau
+  if (hat === 'hood') {
+    g.fillStyle = parts.outfit;
+    g.strokeStyle = OUT;
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(hx, hy + 1, HEAD_R + 7, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+  } else if (!hat || hat === 'snapback') {
+    g.fillStyle = parts.hair;
+    g.strokeStyle = OUT;
+    g.lineWidth = 1.8;
+    hairBack(g, parts.hairStyle, hx, hy);
+  }
 
-  // đầu
+  // tai
+  g.fillStyle = parts.skin;
+  g.strokeStyle = OUT;
+  g.lineWidth = 1.8;
+  for (const sx of [-1, 1]) {
+    g.beginPath();
+    g.ellipse(hx + sx * (HEAD_R - 1), hy + 5, 5.5, 7, 0, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+  }
+  g.fillStyle = 'rgba(220,120,110,.35)';
+  g.beginPath();
+  g.ellipse(hx - HEAD_R + 0.5, hy + 5, 2.4, 3.8, 0, 0, Math.PI * 2);
+  g.ellipse(hx + HEAD_R - 0.5, hy + 5, 2.4, 3.8, 0, 0, Math.PI * 2);
+  g.fill();
+
+  // đầu (có viền)
   g.fillStyle = parts.skin;
   g.beginPath();
   g.arc(hx, hy, HEAD_R, 0, Math.PI * 2);
+  g.fill();
+  g.strokeStyle = OUT;
+  g.lineWidth = 2;
+  g.stroke();
+  // bóng nhẹ dưới cằm + sáng nhẹ trên trán cho có khối
+  g.fillStyle = 'rgba(120,60,40,.10)';
+  g.beginPath();
+  g.arc(hx, hy, HEAD_R - 1, Math.PI * 0.15, Math.PI * 0.85);
+  g.arc(hx, hy - 6, HEAD_R - 4, Math.PI * 0.82, Math.PI * 0.18, true);
   g.fill();
 
   if (avatar) {
@@ -117,11 +149,195 @@ export function renderChibi(parts, avatar, res = 1.25) {
     g.fill();
   } else {
     face(g, parts, hx, hy);
-    g.fillStyle = parts.hair;
-    hairFront(g, parts.hairStyle, hx, hy);
+    if (!hat || hat === 'snapback') {
+      g.fillStyle = parts.hair;
+      g.strokeStyle = OUT;
+      g.lineWidth = 1.8;
+      hairFront(g, hat ? 'short' : parts.hairStyle, hx, hy);
+    }
   }
+  if (hat) hatFront(g, parts, hx, hy);
   accessory(g, parts, hx, hy, Boolean(avatar));
   return c;
+}
+
+/** Thân áo phông có tay áo ngắn, viền nét, đổ bóng một bên; kiểu: trơn, raglan, áo số, sọc, cổ bẻ, hoodie. */
+function torso(g, parts) {
+  const path = () => {
+    g.beginPath();
+    g.moveTo(43, 73);
+    g.quadraticCurveTo(50, 77, 57, 73); // cổ áo
+    g.quadraticCurveTo(66, 74, 70, 80); // vai phải
+    g.lineTo(74, 90); // tay áo phải
+    g.lineTo(67.5, 93);
+    g.lineTo(67, 111); // sườn phải
+    g.quadraticCurveTo(50, 114, 33, 111); // gấu áo
+    g.lineTo(32.5, 93);
+    g.lineTo(26, 90); // tay áo trái
+    g.lineTo(30, 80);
+    g.quadraticCurveTo(34, 74, 43, 73);
+    g.closePath();
+  };
+  g.fillStyle = parts.outfit;
+  path();
+  g.fill();
+  g.save();
+  path();
+  g.clip();
+  const hood = parts.hat === 'hood';
+  g.fillStyle = parts.outfit2;
+  if (hood) {
+    // hoodie: túi trước bụng + dây rút
+    g.fillStyle = 'rgba(0,0,0,.14)';
+    g.beginPath();
+    g.roundRect(39, 96, 22, 12, 4);
+    g.fill();
+    g.strokeStyle = '#f5f5f5';
+    g.lineWidth = 1.6;
+    g.beginPath();
+    g.moveTo(46, 75);
+    g.lineTo(45, 86);
+    g.moveTo(54, 75);
+    g.lineTo(55, 86);
+    g.stroke();
+  } else if (parts.tee === 'raglan') {
+    // tay áo khác màu chéo từ cổ
+    g.beginPath();
+    g.moveTo(43, 73);
+    g.lineTo(34, 95);
+    g.lineTo(20, 95);
+    g.lineTo(20, 70);
+    g.closePath();
+    g.moveTo(57, 73);
+    g.lineTo(66, 95);
+    g.lineTo(80, 95);
+    g.lineTo(80, 70);
+    g.closePath();
+    g.fill();
+  } else if (parts.tee === 'jersey') {
+    // áo bóng rổ: số to + viền cổ
+    g.font = '900 15px "Arial Black", Arial, sans-serif';
+    g.textAlign = 'center';
+    g.fillText(String(parts.num ?? 7), 50, 103);
+    g.fillRect(26, 88, 48, 2.5);
+  } else if (parts.shirt === 'stripe') {
+    g.fillRect(25, 88, 50, 5);
+    g.fillRect(25, 99, 50, 5);
+  } else if (parts.shirt === 'collar') {
+    g.beginPath();
+    g.moveTo(42, 73);
+    g.lineTo(50, 84);
+    g.lineTo(58, 73);
+    g.closePath();
+    g.fill();
+  } else if (parts.shirt === 'heart') {
+    g.font = '14px sans-serif';
+    g.textAlign = 'center';
+    g.fillText('♥', 50, 99);
+  }
+  // viền tay áo + đổ bóng nửa phải + nếp gấp gấu áo
+  g.fillStyle = 'rgba(0,0,0,.16)';
+  g.fillRect(25, 87.5, 9, 3);
+  g.fillRect(66, 87.5, 9, 3);
+  g.fillStyle = 'rgba(0,0,0,.12)';
+  g.beginPath();
+  g.moveTo(58, 70);
+  g.quadraticCurveTo(62, 92, 57, 115);
+  g.lineTo(80, 115);
+  g.lineTo(80, 70);
+  g.closePath();
+  g.fill();
+  g.fillStyle = 'rgba(255,255,255,.10)';
+  g.fillRect(30, 76, 6, 30);
+  g.restore();
+  g.strokeStyle = OUT;
+  g.lineWidth = 2;
+  path();
+  g.stroke();
+  // cổ áo
+  g.strokeStyle = 'rgba(0,0,0,.25)';
+  g.lineWidth = 1.4;
+  g.beginPath();
+  g.moveTo(44, 74.5);
+  g.quadraticCurveTo(50, 79, 56, 74.5);
+  g.stroke();
+}
+
+/** Mũ: snapback (lưỡi trai lệch / quay ngược), mũ len có quả bông, mũ trùm hoodie. */
+function hatFront(g, parts, x, y) {
+  const col = parts.hatColor || parts.outfit2;
+  g.strokeStyle = OUT;
+  g.lineWidth = 2;
+  if (parts.hat === 'snapback') {
+    const back = (parts.num || 0) % 3 === 0; // 1/3 đội ngược
+    // chóp mũ
+    g.fillStyle = col;
+    g.beginPath();
+    g.arc(x, y - 5, HEAD_R + 2, Math.PI * 1.02, Math.PI * 1.98);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    // mảng trước khác màu + nút trên đỉnh
+    g.fillStyle = parts.outfit2 === col ? '#fafafa' : parts.outfit2;
+    g.beginPath();
+    g.arc(x, y - 5, HEAD_R - 6, Math.PI * 1.2, Math.PI * 1.8);
+    g.closePath();
+    g.fill();
+    g.fillStyle = col;
+    g.beginPath();
+    g.arc(x, y - 5 - HEAD_R - 1, 3, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+    // lưỡi trai: chếch sang phải, hoặc quai cài phía trước khi đội ngược
+    g.fillStyle = back ? 'rgba(0,0,0,.25)' : parts.outfit2 === col ? '#263238' : parts.outfit2;
+    g.beginPath();
+    if (back) g.roundRect(x - 9, y - 10, 18, 5, 2);
+    else g.ellipse(x + 18, y - 7, 22, 5.5, 0.12, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+  } else if (parts.hat === 'beanie') {
+    g.fillStyle = col;
+    g.beginPath();
+    g.arc(x, y - 3, HEAD_R + 3, Math.PI, 0);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    // đường len dọc
+    g.strokeStyle = 'rgba(0,0,0,.18)';
+    g.lineWidth = 1.2;
+    g.beginPath();
+    for (let i = -3; i <= 3; i++) {
+      g.moveTo(x + i * 8, y - 12);
+      g.quadraticCurveTo(x + i * 9, y - 26, x + i * 5, y - 30);
+    }
+    g.stroke();
+    // vành gập
+    g.fillStyle = parts.outfit2;
+    g.strokeStyle = OUT;
+    g.lineWidth = 2;
+    g.beginPath();
+    g.roundRect(x - HEAD_R - 3, y - 12, (HEAD_R + 3) * 2, 11, 5);
+    g.fill();
+    g.stroke();
+    // quả bông
+    g.fillStyle = '#fafafa';
+    g.beginPath();
+    g.arc(x, y - HEAD_R - 6, 7, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+  } else if (parts.hat === 'hood') {
+    // viền mũ trùm ôm quanh trán
+    g.strokeStyle = parts.outfit;
+    g.lineWidth = 7;
+    g.beginPath();
+    g.arc(x, y + 1, HEAD_R + 2, Math.PI * 0.92, Math.PI * 2.08);
+    g.stroke();
+    g.strokeStyle = OUT;
+    g.lineWidth = 1.6;
+    g.beginPath();
+    g.arc(x, y + 1, HEAD_R - 1.5, Math.PI * 0.95, Math.PI * 2.05);
+    g.stroke();
+  }
 }
 
 /** Đầu linh vật hài: gà, khủng long, gấu. */
@@ -235,9 +451,11 @@ function hairBack(g, style, x, y) {
     g.arc(x, y - 34, 13, 0, Math.PI * 2);
   }
   g.fill();
+  g.stroke();
   g.beginPath();
   g.arc(x, y - 2, HEAD_R + 3, Math.PI, 0);
   g.fill();
+  g.stroke();
 }
 
 function hairFront(g, style, x, y) {
@@ -267,10 +485,21 @@ function hairFront(g, style, x, y) {
   }
   g.closePath();
   g.fill();
+  g.stroke();
 }
 
 function face(g, parts, x, y) {
   const ey = y + 4;
+  // lông mày
+  g.strokeStyle = parts.hair === '#efd9a6' || parts.hair === '#9aa0a6' ? '#6d5a4a' : parts.hair;
+  g.lineWidth = 2.2;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(x - 16, ey - 9);
+  g.quadraticCurveTo(x - 11, ey - 12, x - 6, ey - 9.5);
+  g.moveTo(x + 6, ey - 9.5);
+  g.quadraticCurveTo(x + 11, ey - 12, x + 16, ey - 9);
+  g.stroke();
   g.fillStyle = '#2b2b2b';
   g.strokeStyle = '#2b2b2b';
   g.lineWidth = 2.4;
@@ -290,14 +519,17 @@ function face(g, parts, x, y) {
     g.lineTo(x + 16, ey);
     g.stroke();
   } else {
+    // mắt to: tròng đen + 2 đốm sáng
     g.beginPath();
-    g.arc(x - 11, ey, 4.2, 0, Math.PI * 2);
-    g.arc(x + 11, ey, 4.2, 0, Math.PI * 2);
+    g.ellipse(x - 11, ey, 4.4, 5.2, 0, 0, Math.PI * 2);
+    g.ellipse(x + 11, ey, 4.4, 5.2, 0, 0, Math.PI * 2);
     g.fill();
     g.fillStyle = '#fff';
     g.beginPath();
-    g.arc(x - 9.8, ey - 1.4, 1.4, 0, Math.PI * 2);
-    g.arc(x + 12.2, ey - 1.4, 1.4, 0, Math.PI * 2);
+    g.arc(x - 9.6, ey - 1.8, 1.7, 0, Math.PI * 2);
+    g.arc(x + 12.4, ey - 1.8, 1.7, 0, Math.PI * 2);
+    g.arc(x - 12.4, ey + 2, 0.8, 0, Math.PI * 2);
+    g.arc(x + 9.6, ey + 2, 0.8, 0, Math.PI * 2);
     g.fill();
   }
   // má hồng
@@ -380,7 +612,7 @@ function accessory(g, parts, x, y, hasAvatar) {
 
 /**
  * Tay vẽ mỗi khung hình (để giơ tay, vỗ tay, quẩy...). x, y: chân nhân vật; s: tỉ lệ.
- * pose: walk | cheer | dance | wave | pump | clap | point | roof | wave2 | swing | carry | tpose | flap | noodle | (null = buông tay)
+ * pose: walk | guard | run | headstand | freeze | cheer | dance | wave | pump | clap | point | roof | wave2 | swing | carry | tpose | flap | noodle | (null = buông tay)
  * beat: số nhịp nhạc đã trôi (số thực) để tay chuyển động khớp nhịp.
  * detail: false khi nhân vật nhỏ trên màn hình (bỏ ngón cái, viền giày) cho nhanh.
  */
@@ -474,6 +706,28 @@ export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2, detai
       noodleArm(ctx, rx, sy, 1, s, parts, t + seed + 1.3);
       return;
     }
+    case 'guard': {
+      // thủ thế b-boy: nắm tay trước cằm, nhún theo nhịp
+      const k = Math.sin(Math.PI * beat) * 3 * s;
+      L = [lx + 3 * s, sy - 15 * s + k];
+      R = [rx - 3 * s, sy - 15 * s - k];
+      break;
+    }
+    case 'run': {
+      // running man: đánh tay lên xuống như chạy
+      const k = Math.sin(Math.PI * beat);
+      L = [lx - 9 * s, sy + (8 - 16 * k) * s];
+      R = [rx + 9 * s, sy + (8 + 16 * k) * s];
+      break;
+    }
+    case 'headstand': // trồng chuối: hai tay chống đất hai bên đầu
+      L = [lx - 12 * s, sy - 40 * s];
+      R = [rx + 12 * s, sy - 40 * s];
+      break;
+    case 'freeze': // freeze: tay phải chống thẳng xuống đất, tay trái giơ ra cân bằng
+      L = [lx - 24 * s, sy - 16 * s];
+      R = [rx + 29 * s, sy - 7 * s];
+      break;
     case 'walk': {
       // đánh tay khi đi bộ, ngược nhịp với chân
       const k = Math.sin(t * 11 + seed * 9);
@@ -493,6 +747,25 @@ export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2, detai
   const RM = RC || softElbow(RS, R, s, 1, x);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+  if (detail) {
+    // viền nét: vẽ đường to màu tối bên dưới, tay màu đè lên
+    ctx.strokeStyle = OUT;
+    ctx.lineWidth = 10.5 * s;
+    ctx.beginPath();
+    ctx.moveTo(LS[0], LS[1]);
+    ctx.lineTo(LM[0], LM[1]);
+    ctx.lineTo(L[0], L[1]);
+    ctx.moveTo(RS[0], RS[1]);
+    ctx.lineTo(RM[0], RM[1]);
+    ctx.lineTo(R[0], R[1]);
+    ctx.stroke();
+    ctx.fillStyle = OUT;
+    ctx.beginPath();
+    ctx.arc(L[0], L[1], 6.2 * s, 0, Math.PI * 2);
+    ctx.moveTo(R[0] + 6.2 * s, R[1]);
+    ctx.arc(R[0], R[1], 6.2 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
   // cẳng tay (màu da) vẽ trước, bắp tay (tay áo) đè lên ở khuỷu; gom 2 tay vào một lần vẽ cho nhanh
   ctx.strokeStyle = parts.skin;
   ctx.lineWidth = 7 * s;
@@ -506,9 +779,9 @@ export function drawArms(ctx, x, y, s, parts, pose, t, seed, beat = t * 2, detai
   ctx.lineWidth = 8 * s;
   ctx.beginPath();
   ctx.moveTo(LS[0], LS[1]);
-  ctx.lineTo(LM[0], LM[1]);
+  ctx.lineTo((LS[0] + LM[0]) / 2, (LS[1] + LM[1]) / 2);
   ctx.moveTo(RS[0], RS[1]);
-  ctx.lineTo(RM[0], RM[1]);
+  ctx.lineTo((RS[0] + RM[0]) / 2, (RS[1] + RM[1]) / 2);
   ctx.stroke();
   ctx.fillStyle = parts.skin;
   ctx.beginPath();
@@ -594,12 +867,15 @@ function noodleArm(ctx, sx0, sy0, side, s, parts, t) {
     ctx.lineTo(pts[to][0], pts[to][1]);
     ctx.stroke();
   };
+  ctx.strokeStyle = OUT;
+  ctx.lineWidth = 10.5 * s;
+  curve(0, N);
   ctx.strokeStyle = parts.skin;
   ctx.lineWidth = 7 * s;
   curve(3, N);
   ctx.strokeStyle = parts.outfit;
   ctx.lineWidth = 8 * s;
-  curve(0, 4);
+  curve(0, 2);
   ctx.fillStyle = parts.skin;
   ctx.beginPath();
   ctx.arc(pts[N][0], pts[N][1], 4.8 * s, 0, Math.PI * 2);
@@ -621,53 +897,99 @@ function thumb(ctx, H, E, s, side) {
   ctx.fill();
 }
 
+/** Bóng tròn dưới chân (vẽ ở mặt đất, trước khi xoay người). lift: độ cao đang bay (đơn vị sprite). */
+export function drawShadow(ctx, x, y, s, lift = 0) {
+  const sh = Math.max(0.35, 1 - lift / 70);
+  ctx.fillStyle = 'rgba(0,0,0,.35)';
+  ctx.beginPath();
+  ctx.ellipse(x, y - 2 * s, 20 * sh * s, 4 * sh * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 /**
  * Chân vẽ mỗi khung hình, gốc toạ độ (0,0) = mặt đất giữa hai chân. s: tỉ lệ.
  * legs: { dip: hông hạ xuống (gập gối), lx, ly, rx, ry: bàn chân trái/phải lệch khỏi chỗ đứng (ly/ry âm = nhấc lên) }
- * shadow: false khi nhân vật đang bay (bóng vẽ riêng).
+ * detail: có viền nét, dây giày (nhân vật đủ to trên màn hình).
  */
-export function drawLegs(ctx, s, parts, legs = {}, shadowLift = 0, detail = true) {
+export function drawLegs(ctx, s, parts, legs = {}, detail = true) {
   const dip = legs.dip || 0;
   const hipY = (-(FOOT_Y - HIP_Y) + dip) * s;
-  // bóng dưới chân: nhỏ lại khi đang nhảy lên
-  if (shadowLift < 150) {
-    const sh = Math.max(0.4, 1 - shadowLift / 60);
-    ctx.fillStyle = 'rgba(0,0,0,.35)';
-    ctx.beginPath();
-    ctx.ellipse(0, (shadowLift - 2) * s, 20 * sh * s, 4 * sh * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
   const LH = [-7 * s, hipY];
   const RH = [7 * s, hipY];
-  const LF = [(-8 + (legs.lx || 0)) * s, (-1 + (legs.ly || 0)) * s];
-  const RF = [(8 + (legs.rx || 0)) * s, (-1 + (legs.ry || 0)) * s];
+  const LF = [(-8 + (legs.lx || 0)) * s, (-3 + (legs.ly || 0)) * s];
+  const RF = [(8 + (legs.rx || 0)) * s, (-3 + (legs.ry || 0)) * s];
   const LK = pickJoint(LH, LF, THIGH * s, SHIN * s, -1, 0);
   const RK = pickJoint(RH, RF, THIGH * s, SHIN * s, 1, 0);
-  // đùi + cẳng chân cùng màu quần: vẽ cả 2 chân một lần (khớp tròn nhờ lineJoin)
+  const legPath = () => {
+    ctx.beginPath();
+    ctx.moveTo(LH[0], LH[1]);
+    ctx.lineTo(LK[0], LK[1]);
+    ctx.lineTo(LF[0], LF[1]);
+    ctx.moveTo(RH[0], RH[1]);
+    ctx.lineTo(RK[0], RK[1]);
+    ctx.lineTo(RF[0], RF[1]);
+  };
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+  if (detail) {
+    ctx.strokeStyle = OUT;
+    ctx.lineWidth = 12.5 * s;
+    legPath();
+    ctx.stroke();
+  }
+  // đùi + cẳng chân cùng màu quần: vẽ cả 2 chân một lần (khớp tròn nhờ lineJoin)
   ctx.strokeStyle = parts.pants;
   ctx.lineWidth = 9.5 * s;
-  ctx.beginPath();
-  ctx.moveTo(LH[0], LH[1]);
-  ctx.lineTo(LK[0], LK[1]);
-  ctx.lineTo(LF[0], LF[1]);
-  ctx.moveTo(RH[0], RH[1]);
-  ctx.lineTo(RK[0], RK[1]);
-  ctx.lineTo(RF[0], RF[1]);
+  legPath();
   ctx.stroke();
-  // giày: mũi chĩa ra ngoài, nghiêng khi nhấc chân
-  const tilt = (f) => Math.min(0.5, Math.max(0, -f[1] / s - 1) / 30);
-  ctx.fillStyle = '#f5f5f5';
-  ctx.beginPath();
-  ctx.ellipse(LF[0] - 2 * s, LF[1] + 2 * s, 8 * s, 4.5 * s, -tilt(LF), 0, Math.PI * 2);
-  ctx.moveTo(RF[0] + 10 * s, RF[1] + 2 * s);
-  ctx.ellipse(RF[0] + 2 * s, RF[1] + 2 * s, 8 * s, 4.5 * s, tilt(RF), 0, Math.PI * 2);
-  ctx.fill();
-  if (detail) {
-    ctx.fillStyle = 'rgba(0,0,0,.15)';
-    ctx.fillRect(LF[0] - 9 * s, LF[1] + 4.6 * s, 14 * s, 1.2 * s);
-    ctx.fillRect(RF[0] - 5 * s, RF[1] + 4.6 * s, 14 * s, 1.2 * s);
+  // giày sneaker: thân màu + đế trắng, mũi chĩa ra ngoài, nghiêng khi nhấc chân
+  const shoe = parts.shoe || '#f5f5f5';
+  if (!detail) {
+    // ở xa: giày đơn giản, vẽ cả đôi một lần
+    ctx.fillStyle = shoe;
+    ctx.beginPath();
+    ctx.ellipse(LF[0] - 2 * s, LF[1] + 1 * s, 8.5 * s, 4.5 * s, 0, 0, Math.PI * 2);
+    ctx.moveTo(RF[0] + 10.5 * s, RF[1] + 1 * s);
+    ctx.ellipse(RF[0] + 2 * s, RF[1] + 1 * s, 8.5 * s, 4.5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  for (const [f, side] of [
+    [LF, -1],
+    [RF, 1],
+  ]) {
+    const tilt = side * Math.min(0.5, Math.max(0, -f[1] / s - 3) / 30);
+    ctx.save();
+    ctx.translate(f[0] + side * 2 * s, f[1] + 2 * s);
+    ctx.rotate(tilt);
+    ctx.fillStyle = shoe;
+    ctx.beginPath();
+    ctx.ellipse(side * 1 * s, -1 * s, 8.5 * s, 5 * s, 0, Math.PI, 0);
+    ctx.lineTo(side * 9.5 * s, 2 * s);
+    ctx.lineTo(-side * 7.5 * s, 2 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = shoe === '#f5f5f5' ? '#d32f2f' : '#fafafa';
+    ctx.fillRect(-8 * s, 1 * s, 17.5 * s, 2.8 * s); // đế
+    {
+      ctx.strokeStyle = OUT;
+      ctx.lineWidth = 1.6 * s;
+      ctx.beginPath();
+      ctx.ellipse(side * 1 * s, -1 * s, 8.5 * s, 5 * s, 0, Math.PI, 0);
+      ctx.lineTo(side * 9.5 * s, 3.8 * s);
+      ctx.lineTo(-side * 7.5 * s, 3.8 * s);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,.8)';
+      ctx.lineWidth = 1.2 * s;
+      ctx.beginPath();
+      ctx.moveTo(-2 * s, -4 * s);
+      ctx.lineTo(2 * s, -3 * s);
+      ctx.moveTo(-1.5 * s, -2 * s);
+      ctx.lineTo(2.5 * s, -1 * s);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 

@@ -427,9 +427,10 @@ export default {
     lastT = t;
     if (t > nextDrop) {
       nextDrop = t + 35 + Math.random() * 20;
-      const kind = ['wave', 'hop', 'clap', 'spin', 'heli'][Math.floor(Math.random() * 5)];
+      const kind = ['wave', 'hop', 'clap', 'spin', 'heli', 'hiphop'][Math.floor(Math.random() * 6)];
       for (const c of w.chars) {
         if (kind === 'wave') setTimeout(() => w.pose(c, 'cheer', 3500), (c.x / w.W) * 1200); // làn sóng giơ tay
+        else if (kind === 'hiphop') w.hiphop(c, 4500); // mỗi người một động tác hip-hop
         else w.dance(c, kind, 4000); // cả quán nhảy tưng tưng / vỗ tay / xoay chong chóng cùng nhịp
       }
       w.fx.flash({ alpha: 0.18, ms: 400 });

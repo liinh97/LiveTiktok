@@ -110,7 +110,7 @@ Nguồn sự kiện (tiktok | simulator) → src/sources/manager.js (tự kết 
 | `!dancer <tên>` | `dancers.js` | Chọn dancer (Gà Quay, Khủng Long, Gấu Béo) trước khi tặng Corgi |
 | `!troll <tên>` + quà | `troll.js` | Troll theo số xu. 1 xu: vỏ chuối / mặt ngáo / hoá khoai. 5 xu: T-pose bay / sâu đo. 20 xu: hoá gà. 30 xu: xì hơi tên lửa. 99 xu: khiêng quan tài |
 | `!khien` + quà | `troll.js` | Khiên 2 phút, troll vào bị dội ngược |
-| `!nhay ga\|sau\|tpose\|ngao\|deo` | `troll.js` | Điệu troll miễn phí, chờ 45 giây |
+| `!nhay ga\|sau\|tpose\|ngao\|deo\|hiphop` | `troll.js` | Điệu troll miễn phí, chờ 45 giây. `hiphop` = cả chuỗi breakdance (toprock, running man, cối xay gió, trồng chuối xoay, freeze) |
 
 ### Hoạt động tự động
 - **Mục tiêu chung** (`goal.js`): "Tháp trà sữa cả quán". Quà cộng dồn, đủ thì cả quán được thưởng, mục tiêu sau tăng dần.

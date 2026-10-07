@@ -47,7 +47,10 @@ const locations = {
           { id: 'fart', name: 'Xì hơi', emoji: '💨', minCoins: 30 },
           { id: 'coffin', name: 'Khiêng quan tài', emoji: '⚰️', minCoins: 99 },
         ],
-        dances: [{ id: 'ga', name: 'Gà mổ thóc', emoji: '🐔', effect: 'chicken', aliases: ['gà'] }],
+        dances: [
+          { id: 'ga', name: 'Gà mổ thóc', emoji: '🐔', effect: 'chicken', aliases: ['gà'] },
+          { id: 'hiphop', name: 'Breakdance', emoji: '🕺', effect: 'breaking', aliases: ['break', 'hip hop'] },
+        ],
       },
     },
   },
@@ -223,4 +226,7 @@ test('troll: !nhay tự nhảy miễn phí có thời gian chờ', () => {
   s.tick(20);
   assert.equal(s.chat(a, '!nhay ga')[0].action, 'troll_dance');
   assert.equal(s.chat(s.u('b'), '!nhay xyz')[0].action, 'troll_dance_list');
+  // breakdance: gõ tên hoặc tên gọi khác đều ra chuỗi "breaking"
+  assert.equal(s.chat(s.u('c'), '!nhay hiphop')[0].data.dance.effect, 'breaking');
+  assert.equal(s.chat(s.u('d'), '!nhay break')[0].data.dance.effect, 'breaking');
 });

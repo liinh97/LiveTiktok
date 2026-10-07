@@ -22,7 +22,7 @@
 //     maxChars?: number           số nhân vật tối đa (mặc định 250; ghi đè bằng ?max= trên URL)
 //   }
 
-import { drawArms, drawLegs, drawWings, FOOT_Y, HEAD_R, HEAD_Y, partsOf, renderChibi, renderTag, SPRITE_H, SPRITE_W } from './chibi.js';
+import { drawArms, drawLegs, drawShadow, drawWings, FOOT_Y, HEAD_R, HEAD_Y, partsOf, renderChibi, renderTag, SPRITE_H, SPRITE_W } from './chibi.js';
 import { createFx } from './fx.js';
 
 const W = 1080;
@@ -261,6 +261,16 @@ const w = {
   dance(c, move, ms = 4000) {
     c.dance = { move, start: now, until: now + ms / 1000, beat0: beatPos };
   },
+  /** Cả chuỗi breakdance (toprock -> windmill -> headspin -> freeze), dài đúng số nhịp của chuỗi. */
+  breakRoutine(c) {
+    const sec = (BREAK_BEATS * 60) / (currentSong()?.bpm || DEFAULT_BPM);
+    c.dance = { move: 'routine', seq: BREAK_ROUTINE, start: now, until: now + sec, beat0: beatPos };
+    return sec;
+  },
+  /** Một động tác hip-hop ngẫu nhiên trong ms mili giây. */
+  hiphop(c, ms = 4000) {
+    w.dance(c, HIPHOP[Math.floor(Math.random() * HIPHOP.length)], ms);
+  },
   say(c, t, ms = 4000) {
     c.bubble = { text: t, until: now + ms / 1000 };
   },
@@ -304,6 +314,18 @@ const DANCES = [
   ['hop', 8],
 ];
 const DANCE_SUM = DANCES.reduce((a, d) => a + d[1], 0);
+// Động tác hip-hop (đám đông thỉnh thoảng tự làm; "!nhay hiphop" làm cả chuỗi)
+const HIPHOP = ['toprock', 'toprock', 'runningman', 'runningman', 'kick', 'headspin', 'windmill', 'freeze'];
+const GROUND_MOVES = ['headspin', 'windmill', 'freeze', 'kick']; // động tác khó: chỉ làm ngắn
+const BREAK_ROUTINE = [
+  ['toprock', 4],
+  ['runningman', 2],
+  ['windmill', 4],
+  ['headspin', 4],
+  ['freeze', 3],
+  ['kick', 1],
+];
+const BREAK_BEATS = BREAK_ROUTINE.reduce((a, d) => a + d[1], 0);
 function pickDance() {
   let r = Math.random() * DANCE_SUM;
   for (const d of DANCES) if ((r -= d[1]) <= 0) return d[0];
@@ -332,7 +354,16 @@ function danceOf(c) {
     m.arms = c.pose;
     return m;
   }
-  const move = c.dance?.move || 'bounce';
+  let move = c.dance?.move || 'bounce';
+  let u = beat - (c.dance?.beat0 ?? 0); // số nhịp từ lúc bắt đầu điệu
+  if (move === 'routine') {
+    // chuỗi động tác (vd. !nhay hiphop): toprock -> windmill -> headspin -> freeze...
+    let acc = 0;
+    const seq = c.dance.seq;
+    const step = seq.find(([, n]) => u < (acc += n)) || seq[seq.length - 1];
+    move = step[0];
+    u -= acc - step[1];
+  }
   m.arms = move;
   switch (move) {
     case 'pump': // nhún sâu, hai chân dạng rộng
@@ -399,6 +430,46 @@ function danceOf(c) {
       m.legs = { rx: 16, ry: -14, lx: 2 };
       break;
     }
+    // ---------- Hip-hop / breakdance ----------
+    case 'toprock': // bước chéo chân trước mặt, tay thủ thế kiểu b-boy
+      m.dip = b * 4;
+      m.rot = (odd ? 1 : -1) * 0.06;
+      m.dx = (odd ? 1 : -1) * 3;
+      m.legs = odd ? { lx: 13, ly: -5, rx: 2 } : { rx: -13, ry: -5, lx: -2 };
+      m.arms = 'guard';
+      break;
+    case 'runningman': {
+      // running man: nhấc cao đầu gối luân phiên, tay đánh như chạy
+      const k = Math.sin(Math.PI * beat);
+      m.dip = 2 + b * 2;
+      m.legs = k > 0 ? { ly: -17 * k, lx: 3 } : { ry: 17 * k, rx: -3 };
+      m.arms = 'run';
+      break;
+    }
+    case 'kick': // bật nhảy xoạc chân ngang
+      m.dy = b * 26;
+      m.legs = { lx: -22 * b, ly: -12 * b, rx: 22 * b, ry: -12 * b };
+      m.arms = 'cheer';
+      break;
+    case 'headspin': // trồng chuối xoay đầu: lộn ngược, chân dạng chữ V, xoay 2 vòng mỗi nhịp
+      m.flip = { p: FOOT_Y - (HEAD_Y - HEAD_R) - 2, h: 0 };
+      m.rot = Math.PI;
+      m.sx = Math.cos(u * Math.PI * 4);
+      m.legs = { lx: -12, rx: 12, ly: 2, ry: 2 };
+      m.arms = 'headstand';
+      break;
+    case 'windmill': // cối xay gió: cả người lăn tròn quanh bụng, chân dạng rộng
+      m.flip = { p: 44, h: 76 };
+      m.rot = u * Math.PI;
+      m.legs = { lx: -18, rx: 18, ly: -2, ry: -2 };
+      m.arms = 'tpose';
+      break;
+    case 'freeze': // freeze: nằm nghiêng chống một tay, co chân, giữ nguyên tư thế
+      m.flip = { p: 40, h: 46 };
+      m.rot = 1.82 + Math.sin(u * Math.PI) * 0.03;
+      m.legs = { lx: -2, ly: -18, rx: 8, ry: -8 };
+      m.arms = 'freeze';
+      break;
     default: // bounce: nhún gối theo nhịp
       m.dip = b * 6;
       m.arms = null;
@@ -528,9 +599,21 @@ function updateChars(dt) {
     // tự đổi điệu nhảy sau vài giây (khá hay xoay vài vòng như chong chóng)
     if (!c.dance || now > c.dance.until) {
       const r = Math.random();
-      const spin = r < 0.14 ? 'spin' : r < 0.18 ? 'heli' : null;
       const beatSec = 60 / (currentSong()?.bpm || DEFAULT_BPM);
-      c.dance = { move: spin || pickDance(), start: now, until: now + (spin ? beatSec * (2 + Math.floor(rand(0, 3))) : rand(4, 8)), beat0: beatPos };
+      let move = pickDance();
+      let sec = rand(4, 8);
+      if (r < 0.12) {
+        move = 'spin';
+        sec = beatSec * (2 + Math.floor(rand(0, 3)));
+      } else if (r < 0.16) {
+        move = 'heli';
+        sec = beatSec * (2 + Math.floor(rand(0, 3)));
+      } else if (r < 0.3) {
+        // hip-hop: bước chân nhiều hơn, động tác lộn ngược ít hơn
+        move = HIPHOP[Math.floor(Math.random() * HIPHOP.length)];
+        sec = beatSec * (GROUND_MOVES.includes(move) ? 4 : 8);
+      }
+      c.dance = { move, start: now, until: now + sec, beat0: beatPos };
     }
     // nhảy 1 cái
     c.jumpY = 0;
@@ -584,6 +667,7 @@ function drawChar(c) {
   const y = c.y - m.dy * s0 - c.jumpY;
   const air = (m.dy * s0 + c.jumpY) / Math.max(s, 0.01); // độ cao đang bay (đơn vị sprite) cho bóng dưới đất
   ctx.globalAlpha = alpha;
+  if (c.clipY == null && !ef.potato) drawShadow(ctx, x, c.y, s, air + ef.dy / Math.max(s, 0.01));
   drawEffectWorld(c, x, y, s);
 
   if (c.look?.wings) drawWings(ctx, x, y, s, now);
@@ -612,17 +696,22 @@ function drawChar(c) {
     ctx.translate(x, y - dh / 2);
     ctx.rotate(c.spin);
     ctx.translate(0, dh / 2);
-    drawLegs(ctx, s, c.parts, { dip: 6, lx: 3, rx: -3, ly: -10, ry: -10 }, 999);
+    drawLegs(ctx, s, c.parts, { dip: 6, lx: 3, rx: -3, ly: -10, ry: -10 }, s * cam.z > 0.95);
     ctx.drawImage(sp, -dw / 2, -dh - 2 * s + 6 * s, dw, dh);
   } else {
     ctx.translate(x + ef.dx * s, y - ef.dy * s);
-    ctx.rotate(m.rot + ef.rot);
+    if (m.flip) {
+      // động tác breakdance: xoay cả người quanh một điểm trên thân (p: cao bao nhiêu từ chân), điểm đó đặt cách đất h
+      ctx.translate(0, -m.flip.h * s);
+      ctx.rotate(m.rot + ef.rot);
+      ctx.translate(0, m.flip.p * s);
+    } else ctx.rotate(m.rot + ef.rot);
     ctx.scale(m.sx * ef.sx, ef.sy);
     if (ef.potato) drawPotato(s, m.dy);
     else {
       if (ef.coffin) drawCoffin(s);
-      const detail = s * cam.z > 0.8; // nhân vật đủ to trên màn hình mới vẽ chi tiết nhỏ
-      drawLegs(ctx, s, c.parts, { ...m.legs, ...ef.legs, dip: m.dip }, air + ef.dy, detail);
+      const detail = s * cam.z > 0.95; // nhân vật đủ to trên màn hình mới vẽ viền nét + chi tiết nhỏ
+      drawLegs(ctx, s, c.parts, { ...m.legs, ...ef.legs, dip: m.dip }, detail);
       // thân hạ xuống theo độ gập gối, hơi bè ra khi nhún
       ctx.translate(0, m.dip * s);
       const squash = (m.dip / 7) * 0.035;
@@ -1437,7 +1526,16 @@ const defaults = {
   },
   troll_dance(w, a) {
     const c = w.charFor(a.user, 6000);
-    w.drinkEffect(c, a.data.dance.effect || a.data.dance.id);
+    const effect = a.data.dance.effect || a.data.dance.id;
+    if (effect === 'breaking') {
+      // breakdance: cả chuỗi động tác, đèn rọi theo người nhảy
+      const sec = w.breakRoutine(c);
+      c.busyUntil = now + sec;
+      w.fx.beam(at(c), { ms: sec * 1000, color: [120, 220, 255] });
+      w.float(c.x, headTop(c) - 30, '🕺 BREAKDANCE!', '#80deea', 34);
+      return;
+    }
+    w.drinkEffect(c, effect);
   },
   troll_dance_list(w, a) {
     if (a.user) w.charFor(a.user, 2500);
